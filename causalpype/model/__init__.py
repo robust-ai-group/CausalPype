@@ -1,3 +1,3 @@
 from .causal_model import CausalModel
 
-__all__ = ['CausalModel']
+__all__ = ["CausalModel"]

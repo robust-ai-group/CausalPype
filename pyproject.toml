@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "altair>=5.5.0",
     "causal-learn>=0.1.4.0",
+    "datasets>=4.4.2",
     "dowhy>=0.12",
     "fastapi>=0.115.13",
     "fastexcel>=0.14.0",

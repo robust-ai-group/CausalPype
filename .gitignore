@@ -8,3 +8,5 @@ notebooks
 .testpypi_token
 
 dist
+
+datasets
