@@ -1,3 +1,0 @@
-# Configuration API
-
-*Coming soon*
