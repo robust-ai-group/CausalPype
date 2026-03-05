@@ -44,14 +44,21 @@ class CATE(BaseTask):
         if self.confounders:
             W = data[self.confounders].values
         else:
-            parents_t = set(model.get_parents(self.treatment))
-            parents_y = set(model.get_parents(self.outcome))
-            auto_confounders = list((parents_t & parents_y) - {self.treatment, self.outcome})
+            auto_confounders = model.get_adjustment_set(self.treatment, self.outcome)
             W = data[auto_confounders].values if auto_confounders else None
 
         est = self._build_estimator()
-        est.fit(Y, T, X=X, W=W)
-        effects = est.effect(X)
+
+        if self.method == "metalearner":
+            if W is not None:
+                X_fit = np.hstack([X, W])
+            else:
+                X_fit = X
+            est.fit(Y, T, X=X_fit)
+            effects = est.effect(X_fit)
+        else:
+            est.fit(Y, T, X=X, W=W)
+            effects = est.effect(X)
 
         details = {
             "treatment": self.treatment,
@@ -61,6 +68,7 @@ class CATE(BaseTask):
             "mean_effect": float(np.mean(effects)),
             "std_effect": float(np.std(effects)),
             "individual_effects": effects,
+            "bounds": (float(np.min(effects)), float(np.max(effects))),
             "estimator": est,
         }
 

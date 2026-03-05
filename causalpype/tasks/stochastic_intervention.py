@@ -28,11 +28,12 @@ class StochasticIntervention(BaseTask):
         if is_binary:
             # Shift: with probability `shift`, flip 0->1
             def shifted_treatment(x):
+                original_shape = x.shape
                 result = x.copy().ravel()
                 zeros = result == 0
                 flips = rng.random(zeros.sum()) < self.shift
                 result[np.where(zeros)[0][flips]] = 1
-                return result
+                return result.reshape(original_shape)
         else:
             def shifted_treatment(x):
                 return x + self.shift

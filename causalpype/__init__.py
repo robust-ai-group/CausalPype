@@ -1,5 +1,7 @@
 from .model import CausalModel
 from .pipeline import Pipeline
+from .report import Report
+from . import plotting
 from .tasks import (
     ATE,
     CATE,
@@ -14,6 +16,7 @@ from .tasks import (
     DistributionChange,
     StochasticIntervention,
     FairnessAudit,
+    Validate,
 )
 
 __version__ = "0.1.0"
@@ -21,6 +24,8 @@ __version__ = "0.1.0"
 __all__ = [
     "CausalModel",
     "Pipeline",
+    "Report",
+    "plotting",
     "ATE",
     "CATE",
     "Counterfactual",
@@ -34,4 +39,5 @@ __all__ = [
     "DistributionChange",
     "StochasticIntervention",
     "FairnessAudit",
+    "Validate",
 ]

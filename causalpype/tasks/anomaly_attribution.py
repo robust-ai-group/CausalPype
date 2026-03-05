@@ -30,8 +30,13 @@ class AnomalyAttribution(BaseTask):
         if len(anomaly_samples) == 0:
             return TaskResult(
                 task_name="Anomaly Attribution",
-                estimate=None,
-                details={"error": "No anomalies found"},
+                estimate={},
+                details={
+                    "target": self.target,
+                    "error": "No anomalies found above the threshold",
+                    "n_anomalies": 0,
+                    "mean_attributions": {},
+                },
             )
 
         attributions = gcm.attribute_anomalies(

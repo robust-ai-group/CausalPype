@@ -12,6 +12,7 @@ from .anomaly_attribution import AnomalyAttribution
 from .distribution_change import DistributionChange
 from .stochastic_intervention import StochasticIntervention
 from .fairness import FairnessAudit
+from .validate import Validate
 
 __all__ = [
     "BaseTask",
@@ -29,4 +30,5 @@ __all__ = [
     "DistributionChange",
     "StochasticIntervention",
     "FairnessAudit",
+    "Validate",
 ]

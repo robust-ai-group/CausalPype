@@ -35,6 +35,17 @@ class KNNIntervention(BaseTask):
         treated = data[treated_mask]
         control = data[control_mask]
 
+        if len(treated) == 0:
+            raise ValueError(
+                f"No units found with {self.treatment}=={self.treatment_value}. "
+                f"Unique values: {sorted(data[self.treatment].unique()[:10])}"
+            )
+        if len(control) == 0:
+            raise ValueError(
+                f"No units found with {self.treatment}=={self.control_value}. "
+                f"Unique values: {sorted(data[self.treatment].unique()[:10])}"
+            )
+
         X_treated = treated[match_cols].values
         X_control = control[match_cols].values
         Y_treated = treated[self.outcome].values

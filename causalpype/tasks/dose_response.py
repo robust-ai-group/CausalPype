@@ -21,13 +21,14 @@ class DoseResponse(BaseTask):
         self._check_node(model, self.treatment)
         self._check_node(model, self.outcome)
 
-        if self.treatment_values is None:
+        treatment_values = self.treatment_values
+        if treatment_values is None:
             t_min = model.data[self.treatment].min()
             t_max = model.data[self.treatment].max()
-            self.treatment_values = np.linspace(t_min, t_max, self.n_points)
+            treatment_values = np.linspace(t_min, t_max, self.n_points)
 
         responses = []
-        for t_val in self.treatment_values:
+        for t_val in treatment_values:
             samples = gcm.interventional_samples(
                 model.scm,
                 interventions={self.treatment: lambda x, v=t_val: v},
