@@ -79,6 +79,17 @@ class Mediation(BaseTask):
                 interventions=nde_interventions,
                 observed_data=observed,
             )
+
+            # Verify that all indexed interventions were consumed in order.
+            # If DoWhy changes its internal iteration order, this will catch it.
+            for med in mediators:
+                interv = nde_interventions[med]
+                if isinstance(interv, _IndexedIntervention):
+                    assert interv.idx == len(interv.values), (
+                        f"_IndexedIntervention for '{med}' consumed {interv.idx} of "
+                        f"{len(interv.values)} values. DoWhy's sample iteration order "
+                        f"may have changed — mediation results are unreliable."
+                    )
         else:
             cf_nde = cf_treatment
 

@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 from .base import BaseTask, TaskResult
 
 
@@ -46,10 +47,16 @@ class KNNIntervention(BaseTask):
                 f"Unique values: {sorted(data[self.treatment].unique()[:10])}"
             )
 
-        X_treated = treated[match_cols].values
-        X_control = control[match_cols].values
+        X_treated_raw = treated[match_cols].values
+        X_control_raw = control[match_cols].values
         Y_treated = treated[self.outcome].values
         Y_control = control[self.outcome].values
+
+        # Standardize covariates so distance is meaningful across different scales
+        scaler = StandardScaler()
+        scaler.fit(data[match_cols].values)
+        X_treated = scaler.transform(X_treated_raw)
+        X_control = scaler.transform(X_control_raw)
 
         nn_control = NearestNeighbors(n_neighbors=min(self.k, len(control))).fit(X_control)
         dist_t, idx_t = nn_control.kneighbors(X_treated)

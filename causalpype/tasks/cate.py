@@ -1,5 +1,8 @@
+import logging
 import numpy as np
 from .base import BaseTask, TaskResult
+
+logger = logging.getLogger(__name__)
 
 
 class CATE(BaseTask):
@@ -50,6 +53,10 @@ class CATE(BaseTask):
         est = self._build_estimator()
 
         if self.method == "metalearner":
+            # Metalearners don't have a separate W argument, so we include
+            # confounders in the feature matrix for fitting. However, we
+            # compute effects on X (effect modifiers) only, so the returned
+            # heterogeneity is w.r.t. the effect modifiers, not confounders.
             if W is not None:
                 X_fit = np.hstack([X, W])
             else:
@@ -77,7 +84,7 @@ class CATE(BaseTask):
             details["lower_bound"] = lb
             details["upper_bound"] = ub
         except Exception:
-            pass
+            logger.debug("Confidence intervals not available for method '%s'", self.method)
 
         return TaskResult(
             task_name="CATE",

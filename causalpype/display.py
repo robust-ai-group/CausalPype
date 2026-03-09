@@ -1,509 +1,302 @@
-"""Rich, task-aware display formatting for TaskResult objects.
-
-Usage::
-
-    result = cp.ATE("X", "Y").run(model)
-    print(result)          # rich formatted output
-    result.summary()       # same thing, returns str
-
-This module is the text equivalent of ``plotting.py``: it takes TaskResult
-objects and renders them as human-readable strings.
-"""
-
 from __future__ import annotations
 
+from io import StringIO
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
+
+try:
+    from rich.console import Console, Group
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+    HAS_RICH = True
+except ImportError:
+    HAS_RICH = False
 
 if TYPE_CHECKING:
     from .tasks.base import TaskResult
 
-# ── Utility functions ─────────────────────────────────────────
+# ── Type-based rendering rules ───────────────────────────────
+#
+# scalar (bool, int, float, str)  →  formatted value
+# list/tuple of scalars            →  comma-separated
+# list of dicts (uniform keys)     →  auto-table
+# dict[str, number]                →  ranked bar chart
+# dict with mixed scalar values    →  nested key-value section
+# everything else                  →  skipped
+#
+
+_SCALAR = (bool, int, float, str, np.integer, np.floating, type(None))
+_ACRONYMS = {"ate", "att", "atc", "nde", "nie", "ite", "cate", "sd", "std"}
+
+
+def _label(key: str) -> str:
+    """Convert snake_case key to Title Case label, preserving acronyms."""
+    words = key.split("_")
+    return " ".join(w.upper() if w.lower() in _ACRONYMS else w.title() for w in words)
+
 
 def _arrow(value: float) -> str:
     if value > 0:
-        return "\u2191"  # ↑
+        return "\u2191"
     elif value < 0:
-        return "\u2193"  # ↓
+        return "\u2193"
     return " "
 
 
-def _check(passed) -> str:
-    return "\u2713" if passed else "\u2717"  # ✓ / ✗
-
-
-def _bar(value: float, max_value: float, width: int = 25) -> str:
-    if max_value <= 0:
-        return ""
-    filled = int(abs(value) / max_value * width)
-    return "\u2588" * filled  # █
-
-
-def _header(title: str) -> str:
-    return f"{title}\n\u2500" * 0 + f"{title}\n{'\u2500' * len(title)}"
-
-
-def _kv(key: str, value, kw: int = 28, decimals: int = 2) -> str:
+def _format_scalar(value) -> str:
+    if isinstance(value, bool):
+        return "\u2713" if value else "\u2717"
     if isinstance(value, float):
-        v = f"{value:.{decimals}f}"
-    elif isinstance(value, (list, tuple)):
-        v = ", ".join(str(x) for x in value)
-    else:
-        v = str(value)
-    return f"  {key:<{kw}s} {v}"
+        return f"{_arrow(value)} {value:.4f}"
+    if isinstance(value, (int, np.integer)):
+        return f"{value:,}"
+    if value is None:
+        return "-"
+    return str(value)
 
 
-def _fmt(value: float, decimals: int = 2) -> str:
-    return f"{value:.{decimals}f}"
+def _is_scalar(value) -> bool:
+    return isinstance(value, _SCALAR)
 
 
-def _sorted_dict(d: dict, reverse: bool = True) -> list:
-    """Sort dict items by absolute value, descending."""
-    return sorted(d.items(), key=lambda x: abs(x[1]), reverse=reverse)
+def _is_number_dict(d: dict) -> bool:
+    """Dict where all values are int or float."""
+    return bool(d) and all(isinstance(v, (int, float)) for v in d.values())
 
 
-# ── Registry ──────────────────────────────────────────────────
+def _is_record_list(value) -> bool:
+    """List of dicts with uniform keys (i.e. tabular data)."""
+    if not isinstance(value, list) or len(value) == 0:
+        return False
+    if not all(isinstance(item, dict) for item in value):
+        return False
+    keys = set(value[0].keys())
+    return all(set(item.keys()) == keys for item in value)
 
-_FORMATTERS: dict[str, callable] = {}
+
+def _is_displayable(value) -> bool:
+    """Can this value be rendered in some form?"""
+    if _is_scalar(value):
+        return True
+    if isinstance(value, (list, tuple)) and all(_is_scalar(x) for x in value):
+        return True
+    if _is_record_list(value):
+        return True
+    if isinstance(value, dict):
+        return True
+    return False
 
 
-def _register(task_name: str):
-    def decorator(fn):
-        _FORMATTERS[task_name] = fn
-        return fn
-    return decorator
-
+# ── API ───────────────────────────────────────────────
 
 def format_result(result: TaskResult) -> str:
-    """Format a TaskResult into rich, human-readable text."""
-    formatter = _FORMATTERS.get(result.task_name, _format_generic)
-    return formatter(result)
+    if HAS_RICH:
+        return _format_rich(result)
+    return _format_plain(result)
 
 
-# ── Generic fallback ──────────────────────────────────────────
+# ── Rich rendering ───────────────────────────────────────────
 
-_SKIP = {
-    "samples", "individual_effects", "predictions", "residuals",
-    "anomalies", "estimator", "cate_model", "policy",
-    "individual_counterfactuals", "all_ite", "ite_treated",
-    "ite_control", "response_df", "assignments",
-    "counterfactual_samples", "interventional_samples",
-    "noise_data", "observed_data", "raw_attributions", "raw_strengths",
-    "individual_nde", "individual_nie", "lower_bound", "upper_bound",
-}
+def _render_number_dict(d: dict) -> Table:
+    """Ranked bar chart for dict[str, number]."""
+    items = sorted(d.items(), key=lambda x: abs(x[1]), reverse=True)
+    max_val = max((abs(v) for _, v in items), default=1)
+    bar_width = 20
+
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style="cyan", min_width=20)
+    table.add_column(justify="right", min_width=10)
+    table.add_column(min_width=bar_width)
+
+    for key, val in items:
+        filled = int(abs(val) / max_val * bar_width) if max_val > 0 else 0
+        bar = "\u2588" * filled
+        table.add_row(str(key), _format_scalar(val), bar)
+
+    return table
 
 
-def _format_generic(result: TaskResult) -> str:
-    lines = [_header(result.task_name)]
+def _render_record_list(records: list) -> Table:
+    """Auto-table from list of dicts with uniform keys."""
+    keys = list(records[0].keys())
+    table = Table(show_header=True, box=None, padding=(0, 1))
+    for k in keys:
+        table.add_column(_label(k), justify="right" if isinstance(records[0].get(k), (int, float)) else "left")
+
+    # Truncate long lists: show first/last 5
+    if len(records) > 12:
+        show = records[:5] + [None] + records[-5:]
+    else:
+        show = records
+
+    for rec in show:
+        if rec is None:
+            table.add_row(*["..." for _ in keys])
+        else:
+            table.add_row(*[_format_scalar(rec.get(k)) for k in keys])
+
+    return table
+
+
+def _render_nested_dict(d: dict) -> Table:
+    """Key-value table for dicts with mixed displayable values."""
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column(style="dim", min_width=20)
+    table.add_column()
+
+    for k, v in d.items():
+        if _is_scalar(v):
+            table.add_row(_label(k), _format_scalar(v))
+        elif isinstance(v, (list, tuple)) and all(_is_scalar(x) for x in v):
+            table.add_row(_label(k), ", ".join(_format_scalar(x) for x in v))
+
+    return table
+
+
+def _render_detail(key: str, value, renderables: list):
+    """Append renderable(s) for a single detail entry. Purely type-driven."""
+    if _is_scalar(value):
+        return "kv", _label(key), _format_scalar(value)
+
+    if isinstance(value, (list, tuple)) and all(_is_scalar(x) for x in value):
+        return "kv", _label(key), ", ".join(_format_scalar(x) for x in value)
+
+    if _is_record_list(value):
+        renderables.append(Text(""))
+        renderables.append(Text(_label(key), style="bold"))
+        renderables.append(_render_record_list(value))
+        return None
+
+    if isinstance(value, dict):
+        if _is_number_dict(value):
+            renderables.append(Text(""))
+            renderables.append(Text(_label(key), style="bold"))
+            renderables.append(_render_number_dict(value))
+            return None
+        # Mixed dict — render displayable scalars as nested kv
+        displayable = {k: v for k, v in value.items() if _is_scalar(v) or (isinstance(v, (list, tuple)) and all(_is_scalar(x) for x in v))}
+        if displayable:
+            renderables.append(Text(""))
+            renderables.append(Text(_label(key), style="bold"))
+            renderables.append(_render_nested_dict(value))
+        # Check for nested dicts-of-dicts (render as table if uniform)
+        nested_records = {k: v for k, v in value.items() if isinstance(v, dict) and v}
+        if nested_records:
+            # Try to render as table if inner dicts share keys
+            inner_keys = None
+            uniform = True
+            for v in nested_records.values():
+                ks = set(v.keys())
+                if inner_keys is None:
+                    inner_keys = ks
+                elif ks != inner_keys:
+                    uniform = False
+                    break
+            if uniform and inner_keys:
+                records = [{"": k, **v} for k, v in nested_records.items()]
+                renderables.append(Text(""))
+                renderables.append(_render_record_list(records))
+        return None
+
+    # Non-displayable type — skip
+    return None
+
+
+def _format_rich(result: TaskResult) -> str:
+    renderables = []
+
+    # Estimate
     est = result.estimate
     if isinstance(est, float):
-        lines.append(f"  Estimate: {_fmt(est)}")
+        renderables.append(Text(f"Estimate: {_arrow(est)} {est:.4f}", style="bold"))
+    elif isinstance(est, dict) and _is_number_dict(est):
+        renderables.append(Text("Estimate:", style="bold"))
+        renderables.append(_render_number_dict(est))
+    elif isinstance(est, str):
+        renderables.append(Text(f"Result: {est.upper().replace('_', ' ')}", style="bold"))
+    else:
+        renderables.append(Text(f"Estimate: {est}", style="bold"))
+
+    # Details — type-driven
+    kv_table = Table(show_header=False, box=None, padding=(0, 1))
+    kv_table.add_column(style="dim", min_width=28)
+    kv_table.add_column()
+    has_kv = False
+    est_is_dict = isinstance(est, dict)
+
+    for key, value in result.details.items():
+        # Skip values that duplicate the estimate
+        if est_is_dict and isinstance(value, dict) and value == est:
+            continue
+
+        result_type = _render_detail(key, value, renderables)
+        if result_type is not None:
+            _, label, formatted = result_type
+            kv_table.add_row(label, formatted)
+            has_kv = True
+
+    if has_kv:
+        renderables.insert(1, kv_table)
+
+    group = Group(*renderables)
+    panel = Panel(group, title=f"[bold]{result.task_name}[/bold]", expand=False, padding=(1, 2))
+
+    buf = StringIO()
+    console = Console(file=buf, width=90, force_terminal=False)
+    console.print(panel)
+    return buf.getvalue().rstrip()
+
+
+# ── Plain text fallback ──────────────────────────────────────
+
+def _format_plain(result: TaskResult) -> str:
+    title = result.task_name
+    lines = [title, "\u2500" * len(title)]
+
+    est = result.estimate
+    if isinstance(est, float):
+        lines.append(f"  Estimate: {_arrow(est)} {est:.4f}")
     elif isinstance(est, dict):
         lines.append("  Estimate:")
         for k, v in est.items():
-            lines.append(f"    {k}: {_fmt(v) if isinstance(v, float) else v}")
+            lines.append(f"    {k}: {_format_scalar(v)}")
     else:
         lines.append(f"  Estimate: {est}")
-    for k, v in result.details.items():
-        if k in _SKIP:
+
+    est_is_dict = isinstance(est, dict)
+
+    for key, value in result.details.items():
+        if est_is_dict and isinstance(value, dict) and value == est:
             continue
-        if isinstance(v, float):
-            lines.append(f"  {k}: {_fmt(v)}")
-        elif isinstance(v, dict):
-            lines.append(f"  {k}:")
-            for dk, dv in v.items():
-                lines.append(f"    {dk}: {_fmt(dv) if isinstance(dv, float) else dv}")
-        else:
-            lines.append(f"  {k}: {v}")
-    return "\n".join(lines)
+        if not _is_displayable(value):
+            continue
 
+        label = _label(key)
 
-# ── Task-specific formatters ──────────────────────────────────
-
-@_register("ATE")
-def _format_ate(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    t_val = d.get("treatment_value", "?")
-    c_val = d.get("control_value", "?")
-    est = r.estimate
-    lines = [
-        _header(f"ATE: {treat} \u2192 {outcome}"),
-        _kv("Contrast:", f"{c_val} \u2192 {t_val}"),
-        _kv("Estimate:", f"{_arrow(est)} {_fmt(est)}"),
-        _kv("Samples:", d.get("num_samples", "?")),
-    ]
-    return "\n".join(lines)
-
-
-@_register("Arrow Strength")
-def _format_arrow_strength(r: TaskResult) -> str:
-    d = r.details
-    target = d.get("target", "?")
-    strengths = r.estimate if isinstance(r.estimate, dict) else d.get("strengths", {})
-    items = _sorted_dict(strengths)
-    max_val = max((abs(v) for _, v in items), default=1)
-
-    lines = [_header(f"Arrow Strength \u2192 {target}")]
-    for edge, val in items:
-        bar = _bar(val, max_val)
-        lines.append(f"  {edge:<38s} {val:>8.2f}  {bar}")
-    return "\n".join(lines)
-
-
-@_register("Intrinsic Causal Influence")
-def _format_ici(r: TaskResult) -> str:
-    d = r.details
-    target = d.get("target", "?")
-    norm = d.get("normalized", {})
-    items = _sorted_dict(norm)
-    max_val = max((abs(v) for _, v in items), default=1)
-
-    lines = [_header(f"Intrinsic Causal Influence \u2192 {target}")]
-    for node, frac in items:
-        bar = _bar(frac, max_val)
-        lines.append(f"  {node:<38s} {frac:>6.1%}  {bar}")
-    total = d.get("total_variance_explained")
-    if total is not None:
-        lines.append(f"\n  Total variance explained: {_fmt(total)}")
-    return "\n".join(lines)
-
-
-@_register("Mediation")
-def _format_mediation(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    t_val = d.get("treatment_value", "?")
-    c_val = d.get("control_value", "?")
-    mediators = d.get("mediators", [])
-
-    te = d.get("total_effect", 0)
-    nde = d.get("natural_direct_effect", 0)
-    nie = d.get("natural_indirect_effect", 0)
-    prop = d.get("proportion_mediated")
-
-    lines = [
-        _header(f"Mediation: {treat} \u2192 {outcome}"),
-        _kv("Contrast:", f"{c_val} \u2192 {t_val}"),
-        _kv("Mediators:", ", ".join(str(m) for m in mediators) if mediators else "auto-detected"),
-        "",
-        _kv("Total Effect:", f"{_arrow(te)} {_fmt(te)}"),
-        _kv("Natural Direct (NDE):", f"{_arrow(nde)} {_fmt(nde)}"),
-        _kv("Natural Indirect (NIE):", f"{_arrow(nie)} {_fmt(nie)}"),
-    ]
-    if prop is not None and isinstance(prop, (int, float)) and not np.isnan(prop):
-        lines.append(_kv("Proportion Mediated:", f"{prop:.1%}"))
-    return "\n".join(lines)
-
-
-@_register("Fairness Audit")
-def _format_fairness(r: TaskResult) -> str:
-    d = r.details
-    attr = d.get("protected_attribute", "?")
-    outcome = d.get("outcome", "?")
-    priv = d.get("privileged_value", "?")
-    unpriv = d.get("unprivileged_value", "?")
-
-    disp = d.get("counterfactual_disparity", r.estimate)
-    gap = d.get("observational_gap", 0)
-    mean_unf = d.get("mean_individual_unfairness", 0)
-    max_unf = d.get("max_individual_unfairness", 0)
-    n_priv = d.get("n_privileged", "?")
-    n_unpriv = d.get("n_unprivileged", "?")
-
-    lines = [
-        _header(f"Fairness Audit: {attr} \u2192 {outcome}"),
-        _kv("Privileged:", f"n={n_priv:,}" if isinstance(n_priv, int) else str(n_priv)),
-        _kv("Unprivileged:", f"n={n_unpriv:,}" if isinstance(n_unpriv, int) else str(n_unpriv)),
-        "",
-        _kv("Counterfactual Disparity:", f"{_arrow(disp)} {_fmt(disp)}"),
-        _kv("Observational Gap:", f"{_arrow(gap)} {_fmt(gap)}"),
-        _kv("Mean Individual Unfairness:", _fmt(mean_unf)),
-        _kv("Max Individual Unfairness:", _fmt(max_unf)),
-    ]
-    return "\n".join(lines)
-
-
-@_register("CATE")
-def _format_cate(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    modifiers = d.get("effect_modifiers", [])
-    method = d.get("method", "?")
-    mean = d.get("mean_effect", r.estimate)
-    std = d.get("std_effect", 0)
-    bounds = d.get("bounds", (None, None))
-
-    lines = [
-        _header(f"CATE: {treat} \u2192 {outcome}"),
-        _kv("Effect Modifiers:", ", ".join(str(m) for m in modifiers)),
-        _kv("Method:", method),
-        "",
-        _kv("Mean Effect:", f"{_arrow(mean)} {_fmt(mean)}"),
-        _kv("Std:", _fmt(std)),
-    ]
-    if bounds and bounds[0] is not None:
-        lines.append(_kv("Range:", f"[{_fmt(bounds[0])}, {_fmt(bounds[1])}]"))
-    return "\n".join(lines)
-
-
-@_register("Dose-Response")
-def _format_dose_response(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    responses = d.get("responses", [])
-
-    lines = [_header(f"Dose-Response: {treat} \u2192 {outcome}")]
-
-    if responses:
-        n = len(responses)
-        lines.append(f"  {n} points")
-        lines.append("")
-
-        # Show first 3 and last 3 if many, otherwise all
-        show = responses if n <= 8 else responses[:3] + [None] + responses[-3:]
-        for resp in show:
-            if resp is None:
-                lines.append("  ...")
-                continue
-            tv = resp.get("treatment_value", "?")
-            ey = resp.get("expected_outcome", "?")
-            sd = resp.get("std", None)
-            tv_s = _fmt(tv) if isinstance(tv, float) else str(tv)
-            ey_s = _fmt(ey) if isinstance(ey, float) else str(ey)
-            sd_s = f"  (SD {_fmt(sd)})" if sd is not None and isinstance(sd, float) else ""
-            lines.append(f"  do({treat}={tv_s}) \u2192 E[{outcome}] = {ey_s}{sd_s}")
-
-        # Range summary
-        outcomes = [resp["expected_outcome"] for resp in responses
-                    if isinstance(resp.get("expected_outcome"), (int, float))]
-        if outcomes:
-            lines.append(f"\n  E[{outcome}] range: {_fmt(min(outcomes))} to {_fmt(max(outcomes))}")
-    return "\n".join(lines)
-
-
-@_register("Counterfactual")
-def _format_counterfactual(r: TaskResult) -> str:
-    d = r.details
-    interventions = d.get("interventions", {})
-    outcome = d.get("outcome")
-    n_units = d.get("n_units", "?")
-    interv_str = ", ".join(f"{k}={v}" for k, v in interventions.items()) if isinstance(interventions, dict) else str(interventions)
-
-    lines = [
-        _header("Counterfactual Analysis"),
-        _kv("Interventions:", interv_str),
-        _kv("N units:", n_units),
-    ]
-
-    if outcome:
-        lines.append(_kv("Outcome:", outcome))
-        fm = d.get("factual_mean")
-        cm = d.get("counterfactual_mean")
-        me = d.get("mean_effect")
-        lines.append("")
-        if fm is not None:
-            lines.append(_kv("Factual Mean:", _fmt(fm)))
-        if cm is not None:
-            lines.append(_kv("Counterfactual Mean:", _fmt(cm)))
-        if me is not None:
-            lines.append(_kv("Average Effect:", f"{_arrow(me)} {_fmt(me)}"))
-    else:
-        # Dict estimate — show all node means
-        est = r.estimate
-        if isinstance(est, dict):
-            lines.append("")
-            lines.append("  Counterfactual Means:")
-            for k, v in est.items():
-                lines.append(f"    {k:<30s} {_fmt(v) if isinstance(v, float) else v}")
-    return "\n".join(lines)
-
-
-@_register("KNN Intervention")
-def _format_knn(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    k = d.get("k", "?")
-    match_on = d.get("match_on", [])
-    t_val = d.get("treatment_value", 1)
-    c_val = d.get("control_value", 0)
-
-    ate = d.get("ate", r.estimate)
-    att = d.get("att", 0)
-    atc = d.get("atc", 0)
-    n_t = d.get("n_treated", "?")
-    n_c = d.get("n_control", "?")
-    mq_t = d.get("match_quality_treated")
-    mq_c = d.get("match_quality_control")
-
-    lines = [
-        _header(f"KNN Matching: {treat} \u2192 {outcome}"),
-        _kv("Contrast:", f"{c_val} \u2192 {t_val}"),
-        _kv("K:", k),
-        _kv("Match on:", ", ".join(str(m) for m in match_on) if match_on else "all"),
-        "",
-        _kv("ATE:", f"{_arrow(ate)} {_fmt(ate)}"),
-        _kv("ATT:", f"{_arrow(att)} {_fmt(att)}"),
-        _kv("ATC:", f"{_arrow(atc)} {_fmt(atc)}"),
-        _kv("N treated:", n_t),
-        _kv("N control:", n_c),
-    ]
-    if mq_t is not None:
-        lines.append(_kv("Match quality (treated):", _fmt(mq_t, 4)))
-    if mq_c is not None:
-        lines.append(_kv("Match quality (control):", _fmt(mq_c, 4)))
-    return "\n".join(lines)
-
-
-@_register("Intervention")
-def _format_intervention(r: TaskResult) -> str:
-    d = r.details
-    interventions = d.get("interventions", {})
-    outcome = d.get("outcome")
-    interv_str = ", ".join(f"{k}={v}" for k, v in interventions.items()) if isinstance(interventions, dict) else str(interventions)
-
-    lines = [
-        _header("Intervention (do-calculus)"),
-        f"  do({interv_str})",
-    ]
-
-    if outcome:
-        mean = d.get("mean", r.estimate)
-        std = d.get("std")
-        lines.append(f"\n  E[{outcome}] = {_fmt(mean)}" +
-                     (f"  (SD {_fmt(std)})" if std is not None else ""))
-    else:
-        est = r.estimate
-        if isinstance(est, dict):
-            lines.append("\n  Expected Values:")
-            for k, v in est.items():
-                lines.append(f"    {k:<30s} {_fmt(v) if isinstance(v, float) else v}")
-    return "\n".join(lines)
-
-
-@_register("Stochastic Intervention")
-def _format_stochastic(r: TaskResult) -> str:
-    d = r.details
-    treat = d.get("treatment", "?")
-    outcome = d.get("outcome", "?")
-    shift = d.get("shift", "?")
-    is_binary = d.get("is_binary", False)
-    baseline = d.get("E[Y|baseline]")
-    shifted = d.get("E[Y|shifted]")
-    effect = r.estimate
-
-    shift_desc = f"p += {shift}" if is_binary else f"{'+' if isinstance(shift, (int, float)) and shift >= 0 else ''}{shift}"
-
-    lines = [
-        _header(f"Stochastic Intervention: {treat} \u2192 {outcome}"),
-        _kv("Shift:", f"{shift_desc} ({'binary' if is_binary else 'continuous'})"),
-        "",
-    ]
-    if baseline is not None:
-        lines.append(_kv("E[Y | baseline]:", _fmt(baseline)))
-    if shifted is not None:
-        lines.append(_kv("E[Y | shifted]:", _fmt(shifted)))
-    if isinstance(effect, (int, float)):
-        lines.append(_kv("Effect:", f"{_arrow(effect)} {_fmt(effect)}"))
-    return "\n".join(lines)
-
-
-@_register("Anomaly Attribution")
-def _format_anomaly(r: TaskResult) -> str:
-    d = r.details
-    target = d.get("target", "?")
-    n_anom = d.get("n_anomalies", 0)
-    attribs = r.estimate if isinstance(r.estimate, dict) else d.get("mean_attributions", {})
-
-    if not attribs:
-        error = d.get("error", "No anomalies found")
-        return f"{_header(f'Anomaly Attribution \u2192 {target}')}\n  {error}"
-
-    items = _sorted_dict(attribs)
-    max_val = max((abs(v) for _, v in items), default=1)
-
-    lines = [
-        _header(f"Anomaly Attribution \u2192 {target}"),
-        f"  Anomalous cases: {n_anom}",
-        "",
-    ]
-    for node, val in items:
-        bar = _bar(val, max_val)
-        lines.append(f"  {node:<38s} {_arrow(val)} {abs(val):.4f}  {bar}")
-    return "\n".join(lines)
-
-
-@_register("Distribution Change")
-def _format_dist_change(r: TaskResult) -> str:
-    d = r.details
-    target = d.get("target", "?")
-    n_old = d.get("n_old", "?")
-    n_new = d.get("n_new", "?")
-    contribs = r.estimate if isinstance(r.estimate, dict) else d.get("contributions", {})
-
-    items = _sorted_dict(contribs)
-    max_val = max((abs(v) for _, v in items), default=1)
-
-    n_old_s = f"{n_old:,}" if isinstance(n_old, int) else str(n_old)
-    n_new_s = f"{n_new:,}" if isinstance(n_new, int) else str(n_new)
-
-    lines = [
-        _header(f"Distribution Change \u2192 {target}"),
-        f"  Old: n={n_old_s}  |  New: n={n_new_s}",
-        "",
-    ]
-    for node, val in items:
-        bar = _bar(val, max_val)
-        lines.append(f"  {node:<38s} {_arrow(val)} {abs(val):.4f}  {bar}")
-    return "\n".join(lines)
-
-
-@_register("Validation")
-def _format_validate(r: TaskResult) -> str:
-    status = str(r.estimate).upper().replace("_", " ")
-    lines = [_header(f"Model Validation: {status}")]
-
-    d = r.details
-    struct = d.get("structure")
-    if struct:
-        edge_tests = struct.get("edge_tests", {})
-        n_pass = sum(1 for v in edge_tests.values() if v.get("success"))
-        n_fail = len(edge_tests) - n_pass
-
-        lines.append("")
-        lines.append(f"  Edge tests: {n_pass} passed, {n_fail} failed")
-
-        # Show passing first, then failing
-        for edge, info in sorted(edge_tests.items()):
-            passed = info.get("success")
-            p = info.get("p_value")
-            p_str = f"(p={p:.4f})" if isinstance(p, float) else ""
-            lines.append(f"  {_check(passed)} {edge:<40s} {p_str}")
-
-        # Local Markov tests
-        node_details = struct.get("node_details", {})
-        markov_lines = []
-        for node, tests in node_details.items():
-            markov = tests.get("local_markov", {})
-            if markov:
-                passed = markov.get("success")
-                p = markov.get("p_value")
-                p_str = f"(p={p:.4f})" if isinstance(p, float) else ""
-                markov_lines.append(f"  {_check(passed)} {node:<40s} {p_str}")
-        if markov_lines:
-            lines.append("")
-            lines.append("  Local Markov tests:")
-            lines.extend(markov_lines)
-
-    model_test = d.get("model")
-    if model_test:
-        result = model_test.get("result", "N/A")
-        lines.append(f"\n  Model test (invertibility): {result}")
+        if _is_scalar(value):
+            lines.append(f"  {label}: {_format_scalar(value)}")
+        elif isinstance(value, (list, tuple)) and all(_is_scalar(x) for x in value):
+            lines.append(f"  {label}: {', '.join(_format_scalar(x) for x in value)}")
+        elif _is_record_list(value):
+            lines.append(f"  {label}:")
+            keys = list(value[0].keys())
+            for rec in value[:10]:
+                row = "  |  ".join(f"{k}={_format_scalar(rec[k])}" for k in keys)
+                lines.append(f"    {row}")
+            if len(value) > 10:
+                lines.append(f"    ... ({len(value)} total)")
+        elif isinstance(value, dict):
+            if _is_number_dict(value):
+                lines.append(f"  {label}:")
+                for k, v in sorted(value.items(), key=lambda x: abs(x[1]), reverse=True):
+                    lines.append(f"    {k:<35s} {_format_scalar(v)}")
+            else:
+                lines.append(f"  {label}:")
+                for k, v in value.items():
+                    if _is_scalar(v):
+                        lines.append(f"    {_label(k)}: {_format_scalar(v)}")
 
     return "\n".join(lines)

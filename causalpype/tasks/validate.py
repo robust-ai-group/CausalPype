@@ -4,7 +4,12 @@ from .base import BaseTask, TaskResult
 
 
 class Validate(BaseTask):
-    """Validate causal model assumptions using DoWhy GCM refutation methods."""
+    """Validate causal model assumptions using DoWhy GCM refutation methods.
+
+    Note: Structure validation runs multiple conditional independence tests
+    without multiple testing correction. For graphs with many edges, consider
+    using a lower significance_level (e.g. 0.01) to reduce false rejections.
+    """
     name = "validate"
 
     def __init__(self, method="all", significance_level=0.05):
@@ -46,10 +51,16 @@ class Validate(BaseTask):
                 if node_summary:
                     node_summaries[node] = node_summary
 
+            n_tests = len(flat_edge_tests) + sum(
+                1 for ns in node_summaries.values() if "local_markov" in ns
+            )
+
             results["structure"] = {
                 "passed": structure_passed,
                 "edge_tests": flat_edge_tests,
                 "node_details": node_summaries,
+                "n_tests": n_tests,
+                "bonferroni_level": self.significance_level / n_tests if n_tests > 0 else self.significance_level,
             }
 
         if self.method in ("model", "all"):
