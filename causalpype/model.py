@@ -4,7 +4,7 @@ import dowhy.gcm as gcm
 
 
 class CausalModel:
-    def __init__(self, graph, auto_assign=True, assignment_quality="good"):
+    def __init__(self, graph, auto_assign=True, assignment_quality="better"):
         if isinstance(graph, str):
             import pydot
             parsed = pydot.graph_from_dot_data(graph)
