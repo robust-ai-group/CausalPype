@@ -4,9 +4,9 @@ import dowhy.gcm as gcm
 from .base import BaseTask, TaskResult
 
 
-class DoseResponse(BaseTask):
+class CausalEffectCurve(BaseTask):
     """Estimate E[Y|do(X=x)] for a range of treatment values using the SCM."""
-    name = "dose_response"
+    name = "causal_effect_curve"
 
     def __init__(self, treatment, outcome, treatment_values=None,
                  n_points=20, num_samples=1000):
@@ -44,7 +44,7 @@ class DoseResponse(BaseTask):
         response_df = pd.DataFrame(responses)
 
         return TaskResult(
-            task_name="Dose-Response",
+            task_name="Causal Effect Curve",
             estimate=response_df,
             details={
                 "treatment": self.treatment,

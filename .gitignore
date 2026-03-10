@@ -9,3 +9,6 @@ notebooks
 dist
 
 datasets
+
+*.xlsx
+*.csv

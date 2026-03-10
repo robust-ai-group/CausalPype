@@ -319,9 +319,9 @@ def plot_effects(results, ax=None, figsize=(9, 5), title=None):
 
 
 # ---------------------------------------------------------------------------
-# plot_dose_response
+# plot_causal_effect_curve
 # ---------------------------------------------------------------------------
-def plot_dose_response(result, ax=None, figsize=(9, 5), title=None):
+def plot_causal_effect_curve(result, ax=None, figsize=(9, 5), title=None):
     """Dose-response curve with \u00b11 SD confidence band."""
     _check_viz_deps()
     import matplotlib.pyplot as plt
@@ -330,7 +330,7 @@ def plot_dose_response(result, ax=None, figsize=(9, 5), title=None):
 
     responses = result.details.get("responses", [])
     if not responses:
-        raise ValueError("No dose-response data in result.")
+        raise ValueError("No causal effect curve data in result.")
 
     t_vals = [r["treatment_value"] for r in responses]
     y_vals = [r["expected_outcome"] for r in responses]
@@ -351,7 +351,7 @@ def plot_dose_response(result, ax=None, figsize=(9, 5), title=None):
     outcome = result.details.get("outcome", "Outcome")
     ax.set_xlabel(f"do({treatment})", fontsize=10)
     ax.set_ylabel(f"E[{outcome}]", fontsize=10)
-    ax.set_title(title or f"Dose\u2013Response: {treatment} \u2192 {outcome}",
+    ax.set_title(title or f"Causal Effect Curve: {treatment} \u2192 {outcome}",
                  fontsize=13, fontweight="bold", color=_PAL["dark"])
 
     ax.grid(True, alpha=0.15, linewidth=0.5)
@@ -412,4 +412,38 @@ def plot_influences(result, ax=None, figsize=(9, 5), title=None):
     ax.tick_params(axis="y", length=0)
     ax.set_xlim(0, max(values) * 1.12 if values else 1)
     fig.tight_layout()
+    return fig, ax
+
+
+def plot_anomalies(result, ax=None, figsize=(9, 5), title=None):
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+    
+    attrs = result.details["mean_attributions"]
+    attrs_sorted = dict(sorted(attrs.items(), key=lambda x: x[1], reverse=True))
+
+    colors = ["#e74c3c" if v > 0 else "#3498db" for v in attrs_sorted.values()]
+    ax.barh(list(attrs_sorted.keys()), list(attrs_sorted.values()), color=colors)
+    ax.set_xlabel("Mean Anomaly Attribution Score")
+    ax.set_title(title or "Anomalies")
+    ax.axvline(0, color="black", linewidth=0.5)
+    plt.tight_layout()
+    return fig, ax
+
+def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None):
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+    
+    strengths = result.details["strengths"]
+    strengths_sorted = dict(sorted(strengths.items(), key=lambda x: x[1]))
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.barh(list(strengths_sorted.keys()), list(strengths_sorted.values()), color="#2c3e50")
+    ax.set_xlabel("Arrow Strength (KL divergence)")
+    ax.set_title(title or "Arrow Strength")
+    plt.tight_layout()
     return fig, ax

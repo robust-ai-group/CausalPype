@@ -4,8 +4,7 @@ from .cate import CATE
 from .counterfactual import Counterfactual
 from .intervention import Intervention
 from .knn_intervention import KNNIntervention
-from .mediation import Mediation
-from .dose_response import DoseResponse
+from .causal_effect_curve import CausalEffectCurve
 from .arrow_strength import ArrowStrength
 from .intrinsic_influence import IntrinsicCausalInfluence
 from .anomaly_attribution import AnomalyAttribution
@@ -22,8 +21,7 @@ __all__ = [
     "Counterfactual",
     "Intervention",
     "KNNIntervention",
-    "Mediation",
-    "DoseResponse",
+    "CausalEffectCurve",
     "ArrowStrength",
     "IntrinsicCausalInfluence",
     "AnomalyAttribution",
