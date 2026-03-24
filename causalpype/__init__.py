@@ -16,6 +16,7 @@ from .tasks import (
     StochasticIntervention,
     FairnessAudit,
     Validate,
+    SensitivityAnalysis,
 )
 
 __version__ = "0.1.0"
@@ -38,4 +39,5 @@ __all__ = [
     "StochasticIntervention",
     "FairnessAudit",
     "Validate",
+    "SensitivityAnalysis",
 ]

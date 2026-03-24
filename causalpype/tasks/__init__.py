@@ -12,6 +12,7 @@ from .distribution_change import DistributionChange
 from .stochastic_intervention import StochasticIntervention
 from .fairness import FairnessAudit
 from .validate import Validate
+from .sensitivity import SensitivityAnalysis
 
 __all__ = [
     "BaseTask",
@@ -29,4 +30,5 @@ __all__ = [
     "StochasticIntervention",
     "FairnessAudit",
     "Validate",
+    "SensitivityAnalysis",
 ]
