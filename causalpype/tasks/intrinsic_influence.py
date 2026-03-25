@@ -1,5 +1,23 @@
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class IntrinsicCausalInfluenceResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Intrinsic Causal Influence Results"),
+            _kv("Target", d["target"]),
+            _kv("Total Variance Explained", d["total_variance_explained"]),
+            _sep(),
+        ]
+        influences = d["influences"]
+        normalized = d["normalized"]
+        for k, v in sorted(influences.items(), key=lambda x: abs(x[1]), reverse=True):
+            pct = f"({normalized[k]:.1%})"
+            lines.append(_kv(f" {k} {pct}", v))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class IntrinsicCausalInfluence(BaseTask):
@@ -25,7 +43,7 @@ class IntrinsicCausalInfluence(BaseTask):
         total = sum(influences_clean.values())
         normalized = {k: v / total if total > 0 else 0 for k, v in influences_clean.items()}
 
-        return TaskResult(
+        return IntrinsicCausalInfluenceResult(
             task_name="Intrinsic Causal Influence",
             estimate=influences_clean,
             details={

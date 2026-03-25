@@ -1,5 +1,21 @@
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class DistributionChangeResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Distribution Change Results"),
+            _kv("Target", d["target"]),
+            _kv("N Old", d["n_old"]),
+            _kv("N New", d["n_new"]),
+            _sep(),
+        ]
+        for k, v in sorted(d["contributions"].items(), key=lambda x: abs(x[1]), reverse=True):
+            lines.append(_kv(f" {k}", v))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class DistributionChange(BaseTask):
@@ -27,7 +43,7 @@ class DistributionChange(BaseTask):
 
         contributions_clean = {str(k): float(v) for k, v in contributions.items()}
 
-        return TaskResult(
+        return DistributionChangeResult(
             task_name="Distribution Change",
             estimate=contributions_clean,
             details={

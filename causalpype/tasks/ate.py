@@ -1,6 +1,23 @@
 import numpy as np
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class ATEResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("ATE Results"),
+            _kv("Treatment", d["treatment"]),
+            _kv("Outcome", d["outcome"]),
+            _kv("Treatment Value", d["treatment_value"]),
+            _kv("Control Value", d["control_value"]),
+            _sep(),
+            _kv("Estimate", self.estimate),
+            _kv("Num Samples", d["num_samples"]),
+            _end(),
+        ]
+        return "\n".join(lines)
 
 
 class ATE(BaseTask):
@@ -26,7 +43,7 @@ class ATE(BaseTask):
             num_samples_to_draw=self.num_samples,
         )
 
-        return TaskResult(
+        return ATEResult(
             task_name="ATE",
             estimate=float(effect),
             details={

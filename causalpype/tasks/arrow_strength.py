@@ -1,5 +1,19 @@
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class ArrowStrengthResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Arrow Strength Results"),
+            _kv("Target", d["target"]),
+            _sep(),
+        ]
+        for edge, val in sorted(d["strengths"].items(), key=lambda x: abs(x[1]), reverse=True):
+            lines.append(_kv(f" {edge}", val))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class ArrowStrength(BaseTask):
@@ -22,7 +36,7 @@ class ArrowStrength(BaseTask):
 
         strengths_clean = {f"{k[0]} -> {k[1]}": float(v) for k, v in strengths.items()}
 
-        return TaskResult(
+        return ArrowStrengthResult(
             task_name="Arrow Strength",
             estimate=strengths_clean,
             details={

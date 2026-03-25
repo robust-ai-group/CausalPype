@@ -1,15 +1,40 @@
 import numpy as np
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class SensitivityAnalysisResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Sensitivity Analysis Results"),
+            _kv("Result", self.estimate.upper()),
+            _kv("Original ATE", d["original_ate"]),
+        ]
+        for method_name in ["placebo", "subset", "random_common_cause"]:
+            if method_name in d:
+                m = d[method_name]
+                label = method_name.replace("_", " ").title()
+                lines.append(_sep())
+                lines.append(f" {label}")
+                lines.append(_kv("   Mean Effect", m["mean_effect"]))
+                lines.append(_kv("   Std Effect", m["std_effect"]))
+                if "p_value" in m:
+                    lines.append(_kv("   P-value", m["p_value"]))
+                if "fraction" in m:
+                    lines.append(_kv("   Fraction", m["fraction"]))
+                lines.append(_kv("   Passed", m["passed"]))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class SensitivityAnalysis(BaseTask):
     """Test robustness of causal effect estimates via refutation methods.
 
     Runs three tests on the GCM-based ATE estimate:
-    - Placebo treatment: permute treatment → effect should vanish
-    - Data subset: re-estimate on random subsets → effect should be stable
-    - Random common cause: inject random confounder → effect should survive
+    - Placebo treatment: permute treatment
+    - Data subset: re-estimate on random subsets
+    - Random common cause: inject random confounder
     """
     name = "sensitivity_analysis"
 
@@ -119,7 +144,7 @@ class SensitivityAnalysis(BaseTask):
         tests_passed = [k for k in tests_run if results[k].get("passed", False)]
         all_passed = len(tests_passed) == len(tests_run)
 
-        return TaskResult(
+        return SensitivityAnalysisResult(
             task_name="Sensitivity Analysis",
             estimate="robust" if all_passed else "sensitive",
             details=results,

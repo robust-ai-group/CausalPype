@@ -6,6 +6,51 @@ import numpy as np
 import pandas as pd
 
 
+# ── Formatting helpers ──────────────────────────────────
+
+_WIDTH = 58
+_ACRONYMS = {"ate", "att", "atc", "nde", "nie", "ite", "cate", "std", "sd", "knn"}
+
+
+def _title(name: str) -> str:
+    """Centered title + double rule."""
+    return f"{name.center(_WIDTH)}\n{'=' * _WIDTH}"
+
+
+def _sep() -> str:
+    return "-" * _WIDTH
+
+
+def _end() -> str:
+    return "=" * _WIDTH
+
+
+def _fmt(value) -> str:
+    """Format a scalar value for display."""
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, (float, np.floating)):
+        return f"{value:.4f}"
+    if isinstance(value, (int, np.integer)):
+        return f"{value:,}"
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def _kv(label: str, value) -> str:
+    """Key-value row, value right-aligned to _WIDTH."""
+    val_str = _fmt(value)
+    padding = _WIDTH - 1 - len(label) - len(val_str)
+    return f" {label}{' ' * max(padding, 1)}{val_str}"
+
+
+def _label(key: str) -> str:
+    """Convert snake_case to Title Case, preserving acronyms."""
+    words = key.split("_")
+    return " ".join(w.upper() if w.lower() in _ACRONYMS else w.title() for w in words)
+
+
 @dataclass
 class TaskResult:
     task_name: str
@@ -48,17 +93,35 @@ class TaskResult:
             "details": clean,
         }
 
+    def _format(self) -> str:
+        """Default statsmodels-style formatting. Override in subclasses."""
+        lines = [_title(f"{self.task_name} Results")]
+        for k, v in self.details.items():
+            if isinstance(v, (bool, int, float, str, type(None), np.integer, np.floating)):
+                lines.append(_kv(_label(k), v))
+        lines.append(_sep())
+        if isinstance(self.estimate, (int, float, np.integer, np.floating)):
+            lines.append(_kv("Estimate", self.estimate))
+        elif isinstance(self.estimate, str):
+            lines.append(_kv("Result", self.estimate.upper()))
+        elif isinstance(self.estimate, dict):
+            for k, v in self.estimate.items():
+                if isinstance(v, (int, float, np.integer, np.floating)):
+                    lines.append(_kv(f" {k}", v))
+        else:
+            lines.append(_kv("Estimate", str(self.estimate)))
+        lines.append(_end())
+        return "\n".join(lines)
+
     def __repr__(self):
-        est = f"{self.estimate:.6f}" if isinstance(self.estimate, float) else str(self.estimate)
-        return f"TaskResult({self.task_name}: {est})"
+        return self._format()
 
     def __str__(self):
-        from ..display import format_result
-        return format_result(self)
+        return self._format()
 
-    def summary(self) -> str:
-        """Return a rich, task-specific formatted string."""
-        return str(self)
+    def summary(self):
+        """Print task-specific formatted summary."""
+        print(self._format())
 
 
 class BaseTask(ABC):

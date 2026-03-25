@@ -1,8 +1,26 @@
 import logging
 import numpy as np
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
 
 logger = logging.getLogger(__name__)
+
+
+class CATEResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("CATE Results"),
+            _kv("Treatment", d["treatment"]),
+            _kv("Outcome", d["outcome"]),
+            _kv("Effect Modifiers", ", ".join(d["effect_modifiers"])),
+            _kv("Method", d["method"]),
+            _sep(),
+            _kv("Mean Effect", d["mean_effect"]),
+            _kv("Std Effect", d["std_effect"]),
+            _kv("Bounds", f"[{d['bounds'][0]:.4f}, {d['bounds'][1]:.4f}]"),
+            _end(),
+        ]
+        return "\n".join(lines)
 
 
 class CATE(BaseTask):
@@ -86,7 +104,7 @@ class CATE(BaseTask):
         except Exception:
             logger.debug("Confidence intervals not available for method '%s'", self.method)
 
-        return TaskResult(
+        return CATEResult(
             task_name="CATE",
             estimate=float(np.mean(effects)),
             details=details,

@@ -1,6 +1,28 @@
 import numpy as np
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class FairnessAuditResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Fairness Audit Results"),
+            _kv("Protected Attribute", d["protected_attribute"]),
+            _kv("Outcome", d["outcome"]),
+            _kv("N Privileged", d["n_privileged"]),
+            _kv("N Unprivileged", d["n_unprivileged"]),
+            _sep(),
+            _kv("Counterfactual Disparity", d["counterfactual_disparity"]),
+        ]
+        if d.get("observational_gap") is not None:
+            lines.append(_kv("Observational Gap", d["observational_gap"]))
+        lines.extend([
+            _kv("Mean Individual Unfairness", d["mean_individual_unfairness"]),
+            _kv("Max Individual Unfairness", d["max_individual_unfairness"]),
+            _end(),
+        ])
+        return "\n".join(lines)
 
 
 class FairnessAudit(BaseTask):
@@ -50,7 +72,7 @@ class FairnessAudit(BaseTask):
             obs_gap = float(data.loc[priv_mask, self.outcome].mean() -
                            data.loc[unpriv_mask, self.outcome].mean())
 
-        return TaskResult(
+        return FairnessAuditResult(
             task_name="Fairness Audit",
             estimate=disparity,
             details={

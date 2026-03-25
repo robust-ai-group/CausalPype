@@ -1,7 +1,34 @@
 import numpy as np
 import pandas as pd
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class CausalEffectCurveResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        t_name = d["treatment"]
+        y_name = d["outcome"]
+        lines = [
+            _title("Causal Effect Curve Results"),
+            _kv("Treatment", t_name),
+            _kv("Outcome", y_name),
+            _sep(),
+            f" {'do(' + t_name + ')':<15s} {'E[' + y_name + ']':>12s} {'Std':>10s}",
+            _sep(),
+        ]
+        responses = d["responses"]
+        if len(responses) > 12:
+            show = responses[:5] + [None] + responses[-5:]
+        else:
+            show = responses
+        for r in show:
+            if r is None:
+                lines.append(f" {'...':^37s}")
+            else:
+                lines.append(f" {r['treatment_value']:<15.4f} {r['expected_outcome']:>12.4f} {r['std']:>10.4f}")
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class CausalEffectCurve(BaseTask):
@@ -43,7 +70,7 @@ class CausalEffectCurve(BaseTask):
 
         response_df = pd.DataFrame(responses)
 
-        return TaskResult(
+        return CausalEffectCurveResult(
             task_name="Causal Effect Curve",
             estimate=response_df,
             details={

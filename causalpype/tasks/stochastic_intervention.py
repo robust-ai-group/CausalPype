@@ -1,6 +1,23 @@
 import numpy as np
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class StochasticInterventionResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Stochastic Intervention Results"),
+            _kv("Treatment", d["treatment"]),
+            _kv("Outcome", d["outcome"]),
+            _kv("Shift", d["shift"]),
+            _sep(),
+            _kv("E[Y|baseline]", d["E[Y|baseline]"]),
+            _kv("E[Y|shifted]", d["E[Y|shifted]"]),
+            _kv("Effect", d["effect"]),
+            _end(),
+        ]
+        return "\n".join(lines)
 
 
 class StochasticIntervention(BaseTask):
@@ -55,7 +72,7 @@ class StochasticIntervention(BaseTask):
         mean_baseline = float(np.mean(baseline))
         mean_shifted = float(np.mean(shifted))
 
-        return TaskResult(
+        return StochasticInterventionResult(
             task_name="Stochastic Intervention",
             estimate=mean_shifted - mean_baseline,
             details={

@@ -1,6 +1,29 @@
 import numpy as np
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class InterventionResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        interv_str = ", ".join(f"{k} := {v}" for k, v in d["interventions"].items())
+        lines = [
+            _title("Intervention Results"),
+            _kv("Interventions", interv_str),
+        ]
+        if "outcome" in d:
+            lines.extend([
+                _kv("Outcome", d["outcome"]),
+                _sep(),
+                _kv("Mean", d["mean"]),
+                _kv("Std", d["std"]),
+            ])
+        else:
+            lines.append(_sep())
+            for k, v in self.estimate.items():
+                lines.append(_kv(f" {k}", v))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class Intervention(BaseTask):
@@ -50,7 +73,7 @@ class Intervention(BaseTask):
         else:
             estimate = {col: float(samples[col].mean()) for col in samples.columns}
 
-        return TaskResult(
+        return InterventionResult(
             task_name="Intervention",
             estimate=estimate,
             details=details,

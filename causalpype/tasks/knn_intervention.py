@@ -1,7 +1,30 @@
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class KNNInterventionResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("KNN Intervention Results"),
+            _kv("Treatment", d["treatment"]),
+            _kv("Outcome", d["outcome"]),
+            _kv("K", d["k"]),
+            _kv("N Treated", d["n_treated"]),
+            _kv("N Control", d["n_control"]),
+            _sep(),
+            _kv("ATE", d["ate"]),
+            _kv("ATT", d["att"]),
+            _kv("ATC", d["atc"]),
+            _kv("Std ITE", d["std_ite"]),
+            _sep(),
+            _kv("Match Quality (Treated)", d["match_quality_treated"]),
+            _kv("Match Quality (Control)", d["match_quality_control"]),
+            _end(),
+        ]
+        return "\n".join(lines)
 
 
 class KNNIntervention(BaseTask):
@@ -70,7 +93,7 @@ class KNNIntervention(BaseTask):
 
         all_ite = np.concatenate([ite_treated, ite_control])
 
-        return TaskResult(
+        return KNNInterventionResult(
             task_name="KNN Intervention",
             estimate=float(np.mean(all_ite)),
             details={

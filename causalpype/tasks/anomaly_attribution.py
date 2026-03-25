@@ -1,7 +1,26 @@
 import numpy as np
 import pandas as pd
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class AnomalyAttributionResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Anomaly Attribution Results"),
+            _kv("Target", d["target"]),
+            _kv("N Anomalies", d["n_anomalies"]),
+        ]
+        if "error" in d:
+            lines.append(_sep())
+            lines.append(f" {d['error']}")
+        else:
+            lines.append(_sep())
+            for k, v in sorted(d["mean_attributions"].items(), key=lambda x: abs(x[1]), reverse=True):
+                lines.append(_kv(f" {k}", v))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class AnomalyAttribution(BaseTask):
@@ -28,7 +47,7 @@ class AnomalyAttribution(BaseTask):
             anomaly_samples = model.data[mask]
 
         if len(anomaly_samples) == 0:
-            return TaskResult(
+            return AnomalyAttributionResult(
                 task_name="Anomaly Attribution",
                 estimate={},
                 details={
@@ -47,7 +66,7 @@ class AnomalyAttribution(BaseTask):
 
         mean_attributions = {str(k): float(np.mean(v)) for k, v in attributions.items()}
 
-        return TaskResult(
+        return AnomalyAttributionResult(
             task_name="Anomaly Attribution",
             estimate=mean_attributions,
             details={

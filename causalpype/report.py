@@ -82,5 +82,4 @@ class Report:
         return "\n".join(lines)
 
     def _format_result(self, result: TaskResult) -> str:
-        from .display import format_result
-        return format_result(result)
+        return result._format()

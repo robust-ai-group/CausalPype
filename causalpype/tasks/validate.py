@@ -1,6 +1,37 @@
 import dowhy.gcm as gcm
 from dowhy.gcm.validation import RejectionResult
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class ValidateResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        lines = [
+            _title("Validation Results"),
+            _kv("Result", self.estimate.upper().replace("_", " ")),
+        ]
+        if "structure" in d:
+            s = d["structure"]
+            lines.append(_sep())
+            lines.append(" Structure Validation")
+            lines.append(_kv("   Passed", s["passed"]))
+            lines.append(_kv("   N Tests", s["n_tests"]))
+            lines.append(_kv("   Bonferroni Level", s["bonferroni_level"]))
+            failed = {k: v for k, v in s["edge_tests"].items() if not v.get("success", True)}
+            if failed:
+                lines.append("   Failed edges:")
+                for edge, info in failed.items():
+                    p = info.get("p_value")
+                    p_str = f"{p:.4f}" if p is not None else "-"
+                    lines.append(f"     {edge} (p={p_str})")
+        if "model" in d:
+            m = d["model"]
+            lines.append(_sep())
+            lines.append(" Model Validation")
+            lines.append(_kv("   Passed", m["passed"]))
+            lines.append(_kv("   Result", m["result"]))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class Validate(BaseTask):
@@ -75,7 +106,7 @@ class Validate(BaseTask):
                 "result": model_rejection.name,
             }
 
-        return TaskResult(
+        return ValidateResult(
             task_name="Validation",
             estimate="passed" if all_passed else "issues_found",
             details=results,

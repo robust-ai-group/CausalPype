@@ -1,7 +1,30 @@
 import numpy as np
 import pandas as pd
 import dowhy.gcm as gcm
-from .base import BaseTask, TaskResult
+from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
+
+
+class CounterfactualResult(TaskResult):
+    def _format(self) -> str:
+        d = self.details
+        interv_str = ", ".join(f"{k} := {v}" for k, v in d["interventions"].items())
+        lines = [
+            _title("Counterfactual Results"),
+            _kv("Interventions", interv_str),
+            _kv("N Units", d["n_units"]),
+        ]
+        if "outcome" in d:
+            lines.append(_kv("Outcome", d["outcome"]))
+            lines.append(_sep())
+            lines.append(_kv("Factual Mean", d["factual_mean"]))
+            lines.append(_kv("Counterfactual Mean", d["counterfactual_mean"]))
+            lines.append(_kv("Mean Effect", d["mean_effect"]))
+        else:
+            lines.append(_sep())
+            for k, v in self.estimate.items():
+                lines.append(_kv(f" {k}", v))
+        lines.append(_end())
+        return "\n".join(lines)
 
 
 class Counterfactual(BaseTask):
@@ -56,7 +79,7 @@ class Counterfactual(BaseTask):
         else:
             estimate = {col: float(cf_samples[col].mean()) for col in cf_samples.columns}
 
-        return TaskResult(
+        return CounterfactualResult(
             task_name="Counterfactual",
             estimate=estimate,
             details=details,
