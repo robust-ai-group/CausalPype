@@ -432,18 +432,321 @@ def plot_anomalies(result, ax=None, figsize=(9, 5), title=None):
     plt.tight_layout()
     return fig, ax
 
-def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None):
+def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None, normalize=False):
+    """Horizontal bar chart of arrow strengths (KL divergence).
+
+    Parameters
+    ----------
+    normalize : bool
+        If True, clip negatives to 0 and normalise so bars sum to 1,
+        showing each parent's *share* of the total direct causal effect.
+    """
     _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
-    
-    strengths = result.details["strengths"]
-    strengths_sorted = dict(sorted(strengths.items(), key=lambda x: x[1]))
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.barh(list(strengths_sorted.keys()), list(strengths_sorted.values()), color="#2c3e50")
-    ax.set_xlabel("Arrow Strength (KL divergence)")
-    ax.set_title(title or "Arrow Strength")
-    plt.tight_layout()
+    strengths = result.details["strengths"]
+    # Clip Monte Carlo negatives to 0 (finite-sample estimation noise)
+    vals = {k: max(0.0, v) for k, v in strengths.items()}
+    if normalize:
+        total = sum(vals.values()) or 1.0
+        vals = {k: v / total for k, v in vals.items()}
+
+    sorted_items = sorted(vals.items(), key=lambda x: x[1])
+    if not sorted_items:
+        return fig, ax
+    names, values = zip(*sorted_items)
+
+    max_val = max(values)
+    colors = [_PAL["red"] if v == max_val else _PAL["blue"] for v in values]
+    y = np.arange(len(names))
+    ax.barh(y, values, color=colors, height=0.65, edgecolor="white", linewidth=0.5)
+
+    for i, v in enumerate(values):
+        lbl = f"{v:.1%}" if normalize else f"{v:.4f}"
+        ax.text(v + max_val * 0.015, i, lbl, va="center", ha="left",
+                fontsize=8.5, color=_PAL["dark"])
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=9)
+    xlabel = "Share of Direct Effect" if normalize else "Arrow Strength (KL Divergence)"
+    ax.set_xlabel(xlabel, fontsize=10)
+    target = result.details.get("target", "target")
+    ax.set_title(title or f"Direct Causal Drivers of '{target}'",
+                 fontsize=13, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    ax.set_xlim(0, max_val * 1.2)
+    fig.tight_layout()
+    return fig, ax
+
+
+def plot_anomalies(result, ax=None, figsize=(9, 5), title=None):
+    """Horizontal bar chart of mean anomaly attribution scores."""
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+
+    attrs = result.details.get("mean_attributions", {})
+    if not attrs:
+        raise ValueError("No anomaly attribution data found.")
+
+    sorted_items = sorted(attrs.items(), key=lambda x: x[1], reverse=True)
+    names = [k for k, _ in sorted_items][::-1]
+    values = [v for _, v in sorted_items][::-1]
+    colors = [_PAL["red"] if v > 0 else _PAL["blue"] for v in values]
+
+    y = np.arange(len(names))
+    ax.barh(y, values, color=colors, height=0.65, edgecolor="white", linewidth=0.5, alpha=0.85)
+
+    max_abs = max(abs(v) for v in values) if values else 1
+    for i, v in enumerate(values):
+        ha = "left" if v >= 0 else "right"
+        off = max_abs * 0.015 * (1 if v >= 0 else -1)
+        ax.text(v + off, i, f"{v:+.4f}", va="center", ha=ha,
+                fontsize=8.5, color=_PAL["dark"])
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=9)
+    ax.axvline(0, color=_PAL["dark"], lw=0.8, alpha=0.4)
+    ax.set_xlabel("Mean Anomaly Attribution Score", fontsize=10)
+    target = result.details.get("target", "target")
+    ax.set_title(title or f"Anomaly Attribution: Root Causes of '{target}'",
+                 fontsize=13, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    fig.tight_layout()
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# plot_distribution_change
+# ---------------------------------------------------------------------------
+def plot_distribution_change(result, ax=None, figsize=(9, 5), title=None):
+    """Horizontal bars showing each node's contribution to a distribution shift.
+
+    Positive (blue) = drives outcome *higher* in the new distribution;
+    negative (red) = drives it *lower*.
+    """
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+
+    contributions = result.details.get("contributions", {})
+    if not contributions:
+        raise ValueError("No contributions data found in DistributionChange result.")
+
+    # Drop near-zero nodes
+    items = [(k, v) for k, v in contributions.items() if abs(v) > 1e-7]
+    items = sorted(items, key=lambda x: abs(x[1]))          # ascending → top = largest
+
+    names = [k for k, _ in items]
+    values = [v for _, v in items]
+    colors = [_PAL["blue"] if v >= 0 else _PAL["red"] for v in values]
+    y = np.arange(len(names))
+
+    ax.barh(y, values, color=colors, height=0.65, edgecolor="white",
+            linewidth=0.5, alpha=0.85)
+
+    max_abs = max(abs(v) for v in values) if values else 1
+    for i, v in enumerate(values):
+        ha, off = ("left", max_abs * 0.015) if v >= 0 else ("right", -max_abs * 0.015)
+        ax.text(v + off, i, f"{v:+.4f}", va="center", ha=ha,
+                fontsize=8.5, color=_PAL["dark"])
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=9)
+    ax.axvline(0, color=_PAL["dark"], lw=0.8, alpha=0.4)
+    ax.set_xlabel("Contribution to Distribution Shift", fontsize=10)
+
+    target = result.details.get("target", "target")
+    ax.set_title(title or f"Distribution Change Attribution: '{target}'",
+                 fontsize=13, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    ax.spines["left"].set_visible(False)
+    ax.tick_params(axis="y", length=0)
+    fig.tight_layout()
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# plot_fairness_audit
+# ---------------------------------------------------------------------------
+def plot_fairness_audit(result, ax=None, figsize=(7, 4), title=None):
+    """Two-bar comparison: observational gap vs counterfactual disparity.
+
+    Annotates the fold-reduction to make the mediation result immediately
+    visible.
+    """
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+
+    d = result.details
+    obs_gap = d.get("observational_gap") or 0.0
+    cf_disp = d["counterfactual_disparity"]
+
+    labels = ["Observational\nGap", "Counterfactual\nDisparity"]
+    values = [obs_gap, cf_disp]
+    colors = [_PAL["light_blue"], _PAL["blue"]]
+    x = np.arange(2)
+
+    bars = ax.bar(x, values, color=colors, width=0.45,
+                  edgecolor=_PAL["border"], linewidth=0.8)
+
+    top = max(values) * 1.4 if max(values) > 0 else 0.1
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width() / 2,
+                val + top * 0.03,
+                f"{val:+.4f}  ({val:.1%})",
+                ha="center", va="bottom",
+                fontsize=9.5, fontweight="bold", color=_PAL["dark"])
+
+    # Fold-reduction annotation
+    if abs(obs_gap) > 1e-6 and abs(cf_disp) > 1e-6:
+        fold = abs(obs_gap / cf_disp)
+        ax.annotate(
+            f"↓ {fold:.0f}× reduction",
+            xy=(1, cf_disp + top * 0.03),
+            xytext=(0.5, (obs_gap + cf_disp) / 2 + top * 0.05),
+            arrowprops=dict(arrowstyle="->", color=_PAL["gray"], lw=1.2),
+            fontsize=9, color=_PAL["gray"], ha="center",
+        )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=10)
+    ax.set_ylabel("Gap in Outcome Probability", fontsize=10)
+    ax.set_ylim(0, top)
+
+    attr = d.get("protected_attribute", "attribute")
+    outcome = d.get("outcome", "outcome")
+    ax.set_title(title or f"Fairness Audit — '{attr}' on '{outcome}'",
+                 fontsize=12, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    ax.spines["bottom"].set_visible(False)
+    ax.tick_params(axis="x", length=0)
+    fig.tight_layout()
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# plot_cate_distribution
+# ---------------------------------------------------------------------------
+def plot_cate_distribution(result, ax=None, figsize=(9, 5), title=None,
+                            data=None, covariate=None, covariate_label=None,
+                            bins=40):
+    """Distribution of individual CATE effects.
+
+    If *data* and *covariate* are provided, plots CATE vs. that covariate
+    as a scatter with a binned-mean trend line; otherwise draws a histogram.
+    """
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+
+    effects = result.details.get("individual_effects")
+    if effects is None:
+        raise ValueError("No individual_effects in CATE result.")
+    effects = np.asarray(effects).ravel()
+    mean_eff = float(np.mean(effects))
+
+    if covariate is not None and data is not None:
+        cov = np.asarray(data[covariate].values[: len(effects)])
+        ax.scatter(cov, effects, alpha=0.25, s=8, color=_PAL["blue"],
+                   edgecolors="none", zorder=2)
+        # Binned mean trend
+        try:
+            from scipy.stats import binned_statistic
+            bm, be, _ = binned_statistic(cov, effects, statistic="mean", bins=20)
+            bc = 0.5 * (be[:-1] + be[1:])
+            ax.plot(bc, bm, color=_PAL["red"], lw=2.2, zorder=5,
+                    label=f"Binned mean")
+        except Exception:
+            pass
+        ax.axhline(mean_eff, color=_PAL["green"], lw=1.5, linestyle="--",
+                   label=f"Mean = {mean_eff:+.4f}")
+        ax.set_xlabel(covariate_label or covariate, fontsize=10)
+        ax.set_ylabel("Individual Treatment Effect", fontsize=10)
+        ax.legend(fontsize=9, framealpha=0.9)
+    else:
+        ax.hist(effects, bins=bins, color=_PAL["light_blue"],
+                edgecolor="white", linewidth=0.4, density=True, alpha=0.85)
+        ax.axvline(0, color=_PAL["dark"], lw=0.8, linestyle="--", alpha=0.4)
+        ax.axvline(mean_eff, color=_PAL["red"], lw=2.0,
+                   label=f"Mean = {mean_eff:+.4f}")
+        ax.set_xlabel("Individual Treatment Effect", fontsize=10)
+        ax.set_ylabel("Density", fontsize=10)
+        ax.legend(fontsize=9, framealpha=0.9)
+
+    t = result.details.get("treatment", "T")
+    o = result.details.get("outcome", "Y")
+    ax.set_title(title or f"Heterogeneous Effects: {t} → {o}",
+                 fontsize=13, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    fig.tight_layout()
+    return fig, ax
+
+
+# ---------------------------------------------------------------------------
+# plot_sensitivity
+# ---------------------------------------------------------------------------
+def plot_sensitivity(result, ax=None, figsize=(9, 5), title=None):
+    """Compare the original ATE with the refutation test effects.
+
+    A robust model shows: placebo ≈ 0, subset ≈ original,
+    random common cause ≈ original.
+    """
+    _check_viz_deps()
+    import matplotlib.pyplot as plt
+
+    fig, ax = _make_fig(ax, figsize)
+
+    d = result.details
+    original = d.get("original_ate", 0.0)
+
+    method_labels = {
+        "placebo": "Placebo\n(permuted T)",
+        "subset": "Data Subset\n(80% resample)",
+        "random_common_cause": "Random\nConfounder",
+    }
+    x_pos, x_labels, means, stds = [], [], [], []
+    for i, (key, label) in enumerate(method_labels.items()):
+        if key not in d:
+            continue
+        x_pos.append(i)
+        x_labels.append(label)
+        means.append(d[key]["mean_effect"])
+        stds.append(d[key].get("std_effect", 0.0))
+
+    ax.axhline(original, color=_PAL["blue"], lw=2.0, linestyle="--",
+               label=f"Original ATE = {original:+.4f}", zorder=5)
+    ax.axhline(0, color=_PAL["dark"], lw=0.6, alpha=0.3)
+
+    ax.errorbar(x_pos, means, yerr=stds, fmt="o", color=_PAL["red"],
+                markersize=8, capsize=5, capthick=1.5, lw=1.5, zorder=6)
+
+    for xi, m in zip(x_pos, means):
+        ax.text(xi, m + max(stds + [abs(original) * 0.05]) * 1.1,
+                f"{m:+.4f}", ha="center", va="bottom", fontsize=8.5,
+                color=_PAL["dark"])
+
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(x_labels, fontsize=9)
+    ax.set_ylabel("Estimated Effect", fontsize=10)
+    ax.legend(fontsize=9, framealpha=0.9)
+
+    treatment = d.get("treatment", "T")
+    ax.set_title(title or f"Sensitivity Analysis: '{treatment}'",
+                 fontsize=13, fontweight="bold", color=_PAL["dark"])
+    _setup_ax(ax)
+    ax.spines["bottom"].set_visible(False)
+    ax.tick_params(axis="x", length=0)
+    fig.tight_layout()
     return fig, ax

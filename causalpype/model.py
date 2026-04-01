@@ -1,3 +1,4 @@
+import copy
 import pandas as pd
 import networkx as nx
 import dowhy.gcm as gcm
@@ -12,7 +13,9 @@ class CausalModel:
         elif isinstance(graph, dict):
             self.graph = nx.DiGraph(graph)
         elif isinstance(graph, nx.DiGraph):
-            self.graph = graph
+            # Deep copy to prevent sharing causal mechanism objects with the
+            # caller's graph when nx.DiGraph.copy() (shallow) is used later.
+            self.graph = copy.deepcopy(graph)
         else:
             raise ValueError("graph must be a DOT string, networkx DiGraph, or adjacency dict")
 
