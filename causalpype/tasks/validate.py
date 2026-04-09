@@ -37,9 +37,10 @@ class ValidateResult(TaskResult):
 class Validate(BaseTask):
     """Validate causal model assumptions using DoWhy GCM refutation methods.
 
-    Note: Structure validation runs multiple conditional independence tests
-    without multiple testing correction. For graphs with many edges, consider
-    using a lower significance_level (e.g. 0.01) to reduce false rejections.
+    Structure validation runs multiple conditional independence tests; the
+    pass/fail verdict is computed against a Bonferroni-corrected level
+    (``significance_level / n_tests``). DoWhy's raw uncorrected verdict is
+    still surfaced under ``raw_rejection`` for transparency.
     """
     name = "validate"
 
@@ -57,8 +58,7 @@ class Validate(BaseTask):
                 model.graph, model.data,
                 significance_level=self.significance_level,
             )
-            structure_passed = rejection == RejectionResult.NOT_REJECTED
-            all_passed &= structure_passed
+            raw_rejection = rejection == RejectionResult.NOT_REJECTED
 
             node_summaries = {}
             flat_edge_tests = {}
@@ -85,13 +85,33 @@ class Validate(BaseTask):
             n_tests = len(flat_edge_tests) + sum(
                 1 for ns in node_summaries.values() if "local_markov" in ns
             )
+            bonferroni_level = (
+                self.significance_level / n_tests if n_tests > 0 else self.significance_level
+            )
+
+            # Bonferroni-corrected verdict: a test rejects only if its
+            # p-value falls below the corrected level. We pass overall iff
+            # no individual test rejects under correction.
+            def _passes(info):
+                p = info.get("p_value")
+                return p is None or p >= bonferroni_level
+
+            structure_passed = all(_passes(info) for info in flat_edge_tests.values())
+            for ns in node_summaries.values():
+                lm = ns.get("local_markov")
+                if lm is not None and not _passes(lm):
+                    structure_passed = False
+                    break
+
+            all_passed &= structure_passed
 
             results["structure"] = {
                 "passed": structure_passed,
+                "raw_rejection": raw_rejection,
                 "edge_tests": flat_edge_tests,
                 "node_details": node_summaries,
                 "n_tests": n_tests,
-                "bonferroni_level": self.significance_level / n_tests if n_tests > 0 else self.significance_level,
+                "bonferroni_level": bonferroni_level,
             }
 
         if self.method in ("model", "all"):

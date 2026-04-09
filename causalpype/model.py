@@ -6,18 +6,14 @@ import dowhy.gcm as gcm
 
 class CausalModel:
     def __init__(self, graph, auto_assign=True, assignment_quality="better"):
-        if isinstance(graph, str):
-            import pydot
-            parsed = pydot.graph_from_dot_data(graph)
-            self.graph = nx.nx_pydot.from_pydot(parsed[0])
-        elif isinstance(graph, dict):
+        if isinstance(graph, dict):
             self.graph = nx.DiGraph(graph)
         elif isinstance(graph, nx.DiGraph):
             # Deep copy to prevent sharing causal mechanism objects with the
             # caller's graph when nx.DiGraph.copy() (shallow) is used later.
             self.graph = copy.deepcopy(graph)
         else:
-            raise ValueError("graph must be a DOT string, networkx DiGraph, or adjacency dict")
+            raise ValueError("graph must be a networkx DiGraph or an adjacency dict")
 
         if not nx.is_directed_acyclic_graph(self.graph):
             raise ValueError(

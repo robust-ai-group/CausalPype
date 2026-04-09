@@ -24,7 +24,14 @@ class CATEResult(TaskResult):
 
 
 class CATE(BaseTask):
-    """Heterogeneous treatment effects using EconML estimators."""
+    """Heterogeneous treatment effects using EconML estimators.
+
+    Note: For ``method="metalearner"``, EconML's TLearner has no separate W
+    argument, so the auto-detected adjustment set is ignored and effects are
+    learned purely as a function of the effect modifiers. If you need
+    confounder adjustment with a metalearner, residualize the outcome
+    upstream or use ``linear_dml`` / ``causal_forest`` instead.
+    """
     name = "cate"
 
     def __init__(self, treatment, outcome, effect_modifiers, confounders=None,
@@ -71,16 +78,11 @@ class CATE(BaseTask):
         est = self._build_estimator()
 
         if self.method == "metalearner":
-            # Metalearners don't have a separate W argument, so we include
-            # confounders in the feature matrix for fitting. However, we
-            # compute effects on X (effect modifiers) only, so the returned
-            # heterogeneity is w.r.t. the effect modifiers, not confounders.
-            if W is not None:
-                X_fit = np.hstack([X, W])
-            else:
-                X_fit = X
-            est.fit(Y, T, X=X_fit)
-            effects = est.effect(X_fit)
+            # Metalearners don't accept a separate W. We fit and compute
+            # effects on the effect modifiers only; the auto-detected
+            # adjustment set is ignored (see class docstring).
+            est.fit(Y, T, X=X)
+            effects = est.effect(X)
         else:
             est.fit(Y, T, X=X, W=W)
             effects = est.effect(X)

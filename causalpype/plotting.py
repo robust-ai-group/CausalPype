@@ -415,23 +415,6 @@ def plot_influences(result, ax=None, figsize=(9, 5), title=None):
     return fig, ax
 
 
-def plot_anomalies(result, ax=None, figsize=(9, 5), title=None):
-    _check_viz_deps()
-    import matplotlib.pyplot as plt
-
-    fig, ax = _make_fig(ax, figsize)
-    
-    attrs = result.details["mean_attributions"]
-    attrs_sorted = dict(sorted(attrs.items(), key=lambda x: x[1], reverse=True))
-
-    colors = ["#e74c3c" if v > 0 else "#3498db" for v in attrs_sorted.values()]
-    ax.barh(list(attrs_sorted.keys()), list(attrs_sorted.values()), color=colors)
-    ax.set_xlabel("Mean Anomaly Attribution Score")
-    ax.set_title(title or "Anomalies")
-    ax.axvline(0, color="black", linewidth=0.5)
-    plt.tight_layout()
-    return fig, ax
-
 def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None, normalize=False):
     """Horizontal bar chart of arrow strengths (KL divergence).
 

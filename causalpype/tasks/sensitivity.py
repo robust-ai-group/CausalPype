@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 import dowhy.gcm as gcm
 from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
@@ -51,8 +52,15 @@ class SensitivityAnalysis(BaseTask):
         self.num_samples = num_samples
 
     def _rebuild_and_fit(self, graph, data, quality):
+        # Deep-copy the graph so mechanism objects are not shared with the
+        # caller's SCM. nx.DiGraph.copy() creates new attr dicts but reuses
+        # the mechanism object references; combined with assign_causal_mechanisms'
+        # default override_models=False, gcm.fit would then refit the caller's
+        # mechanisms in-place — corrupting model.scm (especially under
+        # random_common_cause, where parent counts change).
+        graph = copy.deepcopy(graph)
         scm = gcm.InvertibleStructuralCausalModel(graph)
-        gcm.auto.assign_causal_mechanisms(scm, data, quality=quality)
+        gcm.auto.assign_causal_mechanisms(scm, data, quality=quality, override_models=True)
         gcm.fit(scm, data)
         return scm
 

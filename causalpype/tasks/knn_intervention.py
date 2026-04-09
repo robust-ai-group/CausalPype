@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
@@ -81,12 +82,26 @@ class KNNIntervention(BaseTask):
         X_treated = scaler.transform(X_treated_raw)
         X_control = scaler.transform(X_control_raw)
 
-        nn_control = NearestNeighbors(n_neighbors=min(self.k, len(control))).fit(X_control)
+        effective_k_treated = min(self.k, len(control))
+        if effective_k_treated < self.k:
+            warnings.warn(
+                f"KNNIntervention: only {len(control)} control units available; "
+                f"shrinking k from {self.k} to {effective_k_treated} when matching treated units.",
+                stacklevel=2,
+            )
+        nn_control = NearestNeighbors(n_neighbors=effective_k_treated).fit(X_control)
         dist_t, idx_t = nn_control.kneighbors(X_treated)
         cf_treated = np.mean(Y_control[idx_t], axis=1)
         ite_treated = Y_treated - cf_treated
 
-        nn_treated = NearestNeighbors(n_neighbors=min(self.k, len(treated))).fit(X_treated)
+        effective_k_control = min(self.k, len(treated))
+        if effective_k_control < self.k:
+            warnings.warn(
+                f"KNNIntervention: only {len(treated)} treated units available; "
+                f"shrinking k from {self.k} to {effective_k_control} when matching control units.",
+                stacklevel=2,
+            )
+        nn_treated = NearestNeighbors(n_neighbors=effective_k_control).fit(X_treated)
         dist_c, idx_c = nn_treated.kneighbors(X_control)
         cf_control = np.mean(Y_treated[idx_c], axis=1)
         ite_control = cf_control - Y_control
@@ -109,6 +124,8 @@ class KNNIntervention(BaseTask):
                 "match_quality_control": float(np.mean(dist_c)),
                 "n_treated": len(treated),
                 "n_control": len(control),
+                "effective_k_treated": effective_k_treated,
+                "effective_k_control": effective_k_control,
                 "ite_treated": ite_treated,
                 "ite_control": ite_control,
                 "all_ite": all_ite,

@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import dowhy.gcm as gcm
 from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
 
@@ -40,7 +41,8 @@ class StochasticIntervention(BaseTask):
 
         rng = np.random.RandomState(self.seed)
         T = model.data[self.treatment].values
-        is_binary = set(np.unique(T)).issubset({0, 1, 0.0, 1.0})
+        T_clean = pd.Series(T).dropna().unique()
+        is_binary = len(T_clean) <= 2 and set(T_clean).issubset({0, 1})
 
         if is_binary:
             # Shift: with probability `shift`, flip 0->1
