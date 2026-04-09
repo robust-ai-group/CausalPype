@@ -72,3 +72,7 @@ to build the graph that way.
 Every task returns a `TaskResult` with a scalar `estimate`, a `details`
 dict, and a `to_dict()` method for JSON serialisation.
 
+## License
+
+CausalPype is released under the Apache License 2.0. See
+[`LICENSE`](LICENSE) for the full text.

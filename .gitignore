@@ -12,3 +12,5 @@ datasets
 
 *.xlsx
 *.csv
+
+.DS_Store
