@@ -19,6 +19,16 @@ CausalPype requires Python 3.12 or newer. For now, install from GitHub:
 pip install git+https://github.com/HUA-RobustAI/CausalPype.git
 ```
 
+### Manual installation
+
+```
+git clone git@github.com:robust-ai-group/CausalPype.git
+cd CausalPype
+uv venv .venv --python 3.12
+source .venv/bin/activate
+uv sync
+```
+
 
 ## Quickstart
 
