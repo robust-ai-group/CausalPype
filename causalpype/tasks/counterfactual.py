@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 import dowhy.gcm as gcm
 from .base import BaseTask, TaskResult, _title, _sep, _end, _kv
 

@@ -14,3 +14,8 @@ datasets
 *.csv
 
 .DS_Store
+
+AutogluonModels
+
+examples/data
+examples/figures

@@ -19,15 +19,7 @@ _PAL = {
 }
 
 
-def _check_viz_deps():
-    try:
-        import matplotlib
-        import seaborn
-    except ImportError:
-        raise ImportError(
-            "Visualization dependencies not installed. "
-            "Run: pip install 'causalpype[viz]'"
-        )
+
 
 
 def _setup_ax(ax):
@@ -68,72 +60,8 @@ def _wrap_label(text, width=16):
     return text[:brk] + "\n" + text[brk + 1:]
 
 
-# ---------------------------------------------------------------------------
-# Hierarchical DAG layout
-# ---------------------------------------------------------------------------
-def _hierarchical_pos(G):
-    """Compute layered positions for a DAG (roots at top, leaves at bottom).
-
-    Uses topological depth for layer assignment and a barycenter heuristic
-    to reduce edge crossings.
-    """
-    import networkx as nx
-
-    try:
-        topo = list(nx.topological_sort(G))
-    except nx.NetworkXUnfeasible:
-        return nx.spring_layout(G)
-
-    # Longest-path layering
-    depth = {n: 0 for n in G.nodes}
-    for node in topo:
-        for child in G.successors(node):
-            depth[child] = max(depth[child], depth[node] + 1)
-
-    max_d = max(depth.values()) if depth else 0
-
-    # Group by layer
-    layers = {}
-    for node, d in depth.items():
-        layers.setdefault(d, []).append(node)
-    for d in layers:
-        layers[d] = sorted(layers[d])
-
-    max_width = max(len(v) for v in layers.values())
-
-    # Initial positioning
-    pos = {}
-    for d in sorted(layers.keys()):
-        nodes = layers[d]
-        n = len(nodes)
-        spacing = max_width / max(n, 1)
-        for i, node in enumerate(nodes):
-            x = (i - (n - 1) / 2) * spacing
-            y = (max_d - d) * 1.8
-            pos[node] = (x, y)
-
-    # Barycenter crossing-reduction (two sweeps)
-    for _ in range(2):
-        for d in sorted(layers.keys()):
-            if d == 0:
-                continue
-            nodes = layers[d]
-            bary = {}
-            for node in nodes:
-                parents = list(G.predecessors(node))
-                bary[node] = np.mean([pos[p][0] for p in parents]) if parents else pos[node][0]
-            layers[d] = sorted(nodes, key=lambda n: bary[n])
-            n = len(layers[d])
-            spacing = max_width / max(n, 1)
-            for i, node in enumerate(layers[d]):
-                pos[node] = ((i - (n - 1) / 2) * spacing, pos[node][1])
-
-    return pos
 
 
-# ---------------------------------------------------------------------------
-# plot_graph
-# ---------------------------------------------------------------------------
 def plot_graph(model, strengths=None, ax=None, figsize=(14, 10), title=None):
     """Render the causal DAG with a hierarchical layout.
 
@@ -152,14 +80,13 @@ def plot_graph(model, strengths=None, ax=None, figsize=(14, 10), title=None):
     -------
     (fig, ax)
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
     import matplotlib.patches as mpatches
     import networkx as nx
 
     fig, ax = _make_fig(ax, figsize)
     G = model.graph
-    pos = _hierarchical_pos(G)
+    pos = nx.drawing.nx_pydot.graphviz_layout(G, prog="dot")
 
     # Classify nodes
     roots = {n for n in G.nodes if G.in_degree(n) == 0}
@@ -253,64 +180,99 @@ def plot_graph(model, strengths=None, ax=None, figsize=(14, 10), title=None):
     return fig, ax
 
 
-# ---------------------------------------------------------------------------
-# plot_effects
-# ---------------------------------------------------------------------------
 def plot_effects(results, ax=None, figsize=(9, 5), title=None):
-    """Lollipop chart of causal effect estimates.
+    """Forest plot of causal effect estimates, grouped by outcome variable.
 
-    Labels are auto-generated from the task details
-    (treatment name, control → treatment values).
+    Y-axis shows 'treatment (ctrl → treat)' labels. When multiple outcome
+    variables are present, results are grouped with dividers and outcome
+    labels on the right margin.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
+    from collections import defaultdict
 
     if not isinstance(results, list):
         results = [results]
 
-    fig, ax = _make_fig(ax, figsize)
+    scalar = [r for r in results if isinstance(r.estimate, (int, float, np.floating))]
+    if not scalar:
+        raise ValueError("No scalar estimates to plot.")
 
-    labels, values = [], []
-    for r in results:
-        if not isinstance(r.estimate, (int, float, np.floating)):
-            continue
-        t = r.details.get("treatment", "?")
-        o = r.details.get("outcome", "?")
-        tv = r.details.get("treatment_value", "")
-        cv = r.details.get("control_value", "")
-        labels.append(f"{t}\n({cv} \u2192 {tv})")
-        values.append(float(r.estimate))
+    # Group by outcome, preserve insertion order
+    groups = defaultdict(list)
+    for r in scalar:
+        groups[r.details.get("outcome", "?")].append(r)
 
-    # Sort by absolute magnitude
-    order = sorted(range(len(values)), key=lambda i: abs(values[i]))
-    labels = [labels[i] for i in order]
-    values = [values[i] for i in order]
+    multiple_outcomes = len(groups) > 1
 
-    y = np.arange(len(labels))
+    # Build y positions bottom-to-top so first outcome appears at top visually
+    labels, values, y_pos = [], [], []
+    group_spans    = []   # (y_lo, y_hi, outcome_name)
+    group_dividers = []
+
+    y = 0
+    for i, (outcome, group_results) in enumerate(reversed(list(groups.items()))):
+        if i > 0:
+            group_dividers.append(y - 0.5)
+            y += 1  # blank gap row between groups
+
+        group_results = sorted(group_results, key=lambda r: abs(float(r.estimate)))
+        y_lo = y
+        for r in group_results:
+            t  = r.details.get("treatment", "?")
+            tv = r.details.get("treatment_value", "")
+            cv = r.details.get("control_value", "")
+            labels.append(f"{t}  ({cv} \u2192 {tv})")
+            values.append(float(r.estimate))
+            y_pos.append(y)
+            y += 1
+        group_spans.append((y_lo - 0.5, y - 0.5, outcome))
+
+    auto_h = max(figsize[1], len(y_pos) * 0.65 + 1.5)
+    fig, ax = _make_fig(ax, (figsize[0], auto_h))
+
+    # Zero line
+    ax.axvline(0, color=_PAL["dark"], lw=1.0, alpha=0.5, zorder=1)
+
+    # Group dividers
+    for yd in group_dividers:
+        ax.axhline(yd, color=_PAL["border"], lw=0.8, alpha=0.25,
+                   linestyle="--", zorder=1)
+
+    # Stems + dots
     colors = [_PAL["green"] if v >= 0 else _PAL["red"] for v in values]
+    for yi, vi, ci in zip(y_pos, values, colors):
+        ax.plot([0, vi], [yi, yi], color=ci, lw=2.2, alpha=0.75,
+                zorder=2, solid_capstyle="round")
+        ax.scatter([vi], [yi], color=ci, s=80, zorder=3,
+                   edgecolors="white", linewidths=1.2)
 
-    # Lollipop: stems + dots
-    ax.hlines(y, 0, values, color=colors, linewidth=2.2, alpha=0.7)
-    ax.scatter(values, y, color=colors, s=90, zorder=5,
-               edgecolors="white", linewidths=1.2)
+    # Value annotations
+    max_abs = max(abs(v) for v in values) if values else 1
+    pad = max_abs * 0.03
+    for yi, vi, ci in zip(y_pos, values, colors):
+        ha = "left" if vi >= 0 else "right"
+        ax.text(vi + (pad if vi >= 0 else -pad), yi, f"{vi:+.3f}",
+                va="center", ha=ha, fontsize=8.5, fontweight="bold", color=ci)
 
-    # Annotations
-    pad = 0.03 * (max(abs(v) for v in values) if values else 1)
-    for i, (v, yi) in enumerate(zip(values, y)):
-        ha = "left" if v >= 0 else "right"
-        ax.text(v + (pad if v >= 0 else -pad), yi, f"{v:+.2f}",
-                va="center", ha=ha, fontsize=9, fontweight="bold",
-                color=colors[i])
+    # Outcome labels on right margin using blended axes/data transform
+    if multiple_outcomes:
+        for y_lo, y_hi, outcome in group_spans:
+            ax.text(1.02, (y_lo + y_hi) / 2, outcome,
+                    transform=ax.get_yaxis_transform(),
+                    va="center", ha="left", fontsize=8.5,
+                    color=_PAL["blue"], fontweight="bold", fontstyle="italic")
 
-    ax.set_yticks(y)
+    ax.set_yticks(y_pos)
     ax.set_yticklabels(labels, fontsize=9)
-    ax.axvline(0, color=_PAL["dark"], lw=0.6, alpha=0.3)
+    ax.set_ylim(min(y_pos) - 0.8, max(y_pos) + 0.8)
 
-    outcome = results[0].details.get("outcome", "Outcome") if results else "Outcome"
-    ax.set_xlabel(f"Effect on {outcome}", fontsize=10)
+    if multiple_outcomes:
+        ax.set_xlabel("Causal Effect  (do-calculus estimate)", fontsize=10)
+    else:
+        ax.set_xlabel(f"Effect on {list(groups.keys())[0]}", fontsize=10)
+
     ax.set_title(title or "Causal Effect Estimates", fontsize=13,
                  fontweight="bold", color=_PAL["dark"])
-
     _setup_ax(ax)
     ax.spines["left"].set_visible(False)
     ax.tick_params(axis="y", length=0)
@@ -323,7 +285,6 @@ def plot_effects(results, ax=None, figsize=(9, 5), title=None):
 # ---------------------------------------------------------------------------
 def plot_causal_effect_curve(result, ax=None, figsize=(9, 5), title=None):
     """Dose-response curve with \u00b11 SD confidence band."""
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -361,13 +322,8 @@ def plot_causal_effect_curve(result, ax=None, figsize=(9, 5), title=None):
     return fig, ax
 
 
-
-# ---------------------------------------------------------------------------
-# plot_influences
-# ---------------------------------------------------------------------------
 def plot_influences(result, ax=None, figsize=(9, 5), title=None):
     """Horizontal bar chart of intrinsic causal influences (normalised)."""
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -424,7 +380,6 @@ def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None, normalize=F
         If True, clip negatives to 0 and normalise so bars sum to 1,
         showing each parent's *share* of the total direct causal effect.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -468,7 +423,6 @@ def plot_arrow_strength(result, ax=None, figsize=(9, 5), title=None, normalize=F
 
 def plot_anomalies(result, ax=None, figsize=(9, 5), title=None):
     """Horizontal bar chart of mean anomaly attribution scores."""
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -515,7 +469,6 @@ def plot_distribution_change(result, ax=None, figsize=(9, 5), title=None):
     Positive (blue) = drives outcome *higher* in the new distribution;
     negative (red) = drives it *lower*.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -557,16 +510,12 @@ def plot_distribution_change(result, ax=None, figsize=(9, 5), title=None):
     return fig, ax
 
 
-# ---------------------------------------------------------------------------
-# plot_fairness_audit
-# ---------------------------------------------------------------------------
 def plot_fairness_audit(result, ax=None, figsize=(7, 4), title=None):
     """Two-bar comparison: observational gap vs counterfactual disparity.
 
     Annotates the fold-reduction to make the mediation result immediately
     visible.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -618,9 +567,6 @@ def plot_fairness_audit(result, ax=None, figsize=(7, 4), title=None):
     return fig, ax
 
 
-# ---------------------------------------------------------------------------
-# plot_cate_distribution
-# ---------------------------------------------------------------------------
 def plot_cate_distribution(result, ax=None, figsize=(9, 5), title=None,
                             data=None, covariate=None, covariate_label=None,
                             bins=40):
@@ -629,7 +575,6 @@ def plot_cate_distribution(result, ax=None, figsize=(9, 5), title=None,
     If *data* and *covariate* are provided, plots CATE vs. that covariate
     as a scatter with a binned-mean trend line; otherwise draws a histogram.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)
@@ -676,17 +621,12 @@ def plot_cate_distribution(result, ax=None, figsize=(9, 5), title=None,
     fig.tight_layout()
     return fig, ax
 
-
-# ---------------------------------------------------------------------------
-# plot_sensitivity
-# ---------------------------------------------------------------------------
 def plot_sensitivity(result, ax=None, figsize=(9, 5), title=None):
     """Compare the original ATE with the refutation test effects.
 
     A robust model shows: placebo ≈ 0, subset ≈ original,
     random common cause ≈ original.
     """
-    _check_viz_deps()
     import matplotlib.pyplot as plt
 
     fig, ax = _make_fig(ax, figsize)

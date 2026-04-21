@@ -26,9 +26,11 @@ dependencies = [
     "pandas",
     "networkx",
     "numpy",
-    "dowhy",
+    "dowhy==0.14",
     "econml",
     "scikit-learn",
+    "seaborn>=0.13.2",
+    "autogluon>=1.5.0",
 ]
 
 [project.optional-dependencies]
@@ -47,3 +49,6 @@ Repository = "https://github.com/HUA-RobustAI/CausalPype"
 
 [tool.hatch.build.targets.wheel]
 packages = ["causalpype"]
+
+[tool.uv.sources]
+dowhy = { git = "https://github.com/py-why/dowhy.git", rev = "main" }

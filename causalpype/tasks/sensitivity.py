@@ -80,7 +80,7 @@ class SensitivityAnalysis(BaseTask):
 
         rng = np.random.default_rng(42)
         original_ate = self._estimate_ate(model.scm)
-        results = {"original_ate": original_ate}
+        results = {"original_ate": original_ate, "treatment": self.treatment}
 
         # Placebo: permute treatment column, re-fit, re-estimate
         if "placebo" in self.methods:
