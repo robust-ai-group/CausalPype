@@ -88,7 +88,6 @@ print(f"  Total: {len(df)}")
 #
 # The NSW program targeted extremely disadvantaged workers.
 # CPS controls are from the general population.
-# This creates a huge selection bias.
 
 print("\n" + "=" * 60)
 print("The Selection Problem")
@@ -115,7 +114,7 @@ print(f"  Mean 1975 earnings (treated):  ${treated['re75'].mean():,.0f}")
 print(f"  Mean 1975 earnings (control):  ${control['re75'].mean():,.0f}")
 
 
-## 3. The Naive Comparison
+## 3. Direct computation of ATE
 #
 # Simply comparing mean outcomes severely miscalculates the effect.
 
@@ -137,7 +136,7 @@ print("\n  This is a spectacular failure of naive comparison.")
 ## 4. The Experimental Benchmark
 #
 # The NSW ran an actual RCT.
-# Our goal: recover this using observational methods on NSW + CPS data.
+# Goal: recover this using observational methods on NSW + CPS data.
 
 print("\n" + "=" * 60)
 print("Experimental Benchmark")
@@ -145,8 +144,6 @@ print("=" * 60)
 print("""
 From LaLonde (1986) and Dehejia-Wahba (1999):
   - Experimental estimate (NSW treated vs NSW control): +$1,794
-  - This is the TRUE causal effect we're trying to recover
-  - Can CausalPype recover this from observational data?
 """)
 
 EXPERIMENTAL_BENCHMARK = 1794
@@ -155,7 +152,7 @@ EXPERIMENTAL_BENCHMARK = 1794
 # ## 5. Define the Causal DAG
 #
 # Pre-treatment variables affect both program participation (selection)
-# and post-program earnings (outcomes). This is classic confounding.
+# and post-program earnings (outcomes).
 
 print("=" * 60)
 print("Causal Analysis with CausalPype")
@@ -173,6 +170,7 @@ dag = {
     'treat':       ['re75', 're78'],
 }
 
+# Used 'better' assignment quality of doWhy. Can also experiment with 'best'.
 model = cp.CausalModel(dag, assignment_quality='better')
 model.fit(df)
 
@@ -207,7 +205,7 @@ fig.savefig(FIGDIR / 'ate.pdf')
 
 # ## 7. Validate with Matching
 #
-# Propensity-style matching as a robustness check.
+# Propensity-style matching
 
 print("\nValidating with nearest-neighbor matching...")
 
@@ -313,32 +311,20 @@ print("\n" + "=" * 60)
 print("SUMMARY: LaLonde Real Data Analysis")
 print("=" * 60)
 print(f"""
-This analysis used the REAL LaLonde data (NSW + CPS):
+Analysis using LaLonde data (NSW + CPS):
 
 1. THE DATA:
    - 185 NSW participants (extremely disadvantaged workers)
    - 15,992 CPS controls (general population)
-   - Massive pre-treatment differences in earnings
 
-2. THE SELECTION BIAS DISASTER:
+2. DIRECT CALCULATION OF ATE:
    - Mean 1975 earnings (treated):  ${treated['re75'].mean():,.0f}
    - Mean 1975 earnings (control):  ${control['re75'].mean():,.0f}
-   - Naive effect: ${naive_effect:+,.0f} (COMPLETELY WRONG!)
+   - Estimated effect (erroneous): ${naive_effect:+,.0f}
 
 3. CAUSAL RECOVERY:
    - Experimental benchmark: +${EXPERIMENTAL_BENCHMARK:,}
    - CausalPype estimate:    ${r_ate.estimate:+,.0f}
-   - We recovered the true effect from observational data!
-
-4. WHY THIS MATTERS:
-   - Naive analysis suggests training DESTROYS earnings
-   - A policymaker using naive comparison would cancel the program
-   - But the program actually HELPS participants by ~$1,800/year
-   - Causal inference saves evidence-based policy
-
-This is why LaLonde (1986) became one of the most cited papers
-in econometrics, and why causal methods are essential for
-program evaluation.
 """)
 
 print("All figures saved to figures/lalonde/")
@@ -349,7 +335,7 @@ print("All figures saved to figures/lalonde/")
 # If we had the NSW control group, we could verify the experimental estimate.
 
 print("\n" + "-" * 60)
-print("BONUS: Download NSW experimental controls to verify benchmark")
+print("NSW experimental controls to verify benchmark")
 print("-" * 60)
 
 nsw_control_path = DATADIR / 'nsw_control.txt'
@@ -367,4 +353,3 @@ print(f"\nExperimental estimate (NSW treated vs NSW control):")
 print(f"  Mean earnings (treated): ${df_treated['re78'].mean():,.0f}")
 print(f"  Mean earnings (control): ${df_nsw_control['re78'].mean():,.0f}")
 print(f"  EXPERIMENTAL EFFECT: ${experimental_effect:+,.0f}")
-print(f"\nThis confirms our benchmark. CausalPype recovered the true effect!")
